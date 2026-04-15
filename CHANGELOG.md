@@ -1,5 +1,16 @@
 # AI Model Team Changelog
 
+## [2.7.0] - 2026-04-16
+
+### 🐛 Fixed
+
+#### Yahoo Finance ETH 价格 bug
+- **问题**: `get_data('ETH-USDT-SWAP')` 返回 $22（Grayscale Ethereum Mini ETF），而不是 ETH 加密货币（$2,349），差 100 倍
+- **根因**: `STOCK_SYMBOLS` 变量名语义反了——把"不是股票的币"放在 `STOCK_SYMBOLS` 里，导致 ETH 被误判为股票
+- **修复**: 新增 `CRYPTO_EXCLUSIONS` 排除列表，逻辑取反
+
+---
+
 ## [2.6.0] - 2026-04-16
 
 ### 🆕 Added (Testing & Reliability)
