@@ -93,22 +93,33 @@ class SocialSentimentProvider:
         "coindesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
         "cointelegraph": "https://cointelegraph.com/rss",
         "decrypt": "https://decrypt.co/feed",
-        # 股票/通用财经 (Yahoo Finance RSS)
-        "yahoo_finance": "https://finance.yahoo.com/news/rssindex",
-        "yahoo_tech": "https://finance.yahoo.com/tech/rssindex",
-        # 备用通用财经
-        "reuters": "https://feeds.reuters.com/reuters/businessNews",
+        # 四大新闻社 (通用财经)
+        "bloomberg": "https://feeds.bloomberg.com/markets/news.rss",
+        "wsj": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+        "cnbc": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "ft": "https://www.ft.com/rss/home",
+        # 其他主流媒体
+        "bbc_business": "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "economist": "https://www.economist.com/finance-and-economics/rss.xml",
+        "nytimes": "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
     }
 
-    # 来源权重 (Cryptopanic已禁用 - JS动态加载导致抓取失败)
+    # 来源权重
     SOURCE_WEIGHTS = {
-        "reddit": 0.30,
-        "coindesk": 0.20,
-        "cointelegraph": 0.20,
-        "decrypt": 0.10,
-        "yahoo_finance": 0.10,
-        "yahoo_tech": 0.05,
-        "reuters": 0.05
+        "reddit": 0.25,
+        # 加密货币
+        "coindesk": 0.15,
+        "cointelegraph": 0.15,
+        "decrypt": 0.05,
+        # 四大新闻社
+        "bloomberg": 0.10,
+        "wsj": 0.08,
+        "cnbc": 0.08,
+        "ft": 0.05,
+        # 其他媒体
+        "bbc_business": 0.05,
+        "economist": 0.02,
+        "nytimes": 0.02
     }
 
     def __init__(self):
@@ -293,10 +304,14 @@ class SocialSentimentProvider:
         else:
             print(f"❌ {reddit_data.get('error')}")
 
-        # RSS 源 (扩展: 加密货币 + 股票财经)
+        # RSS 源 (扩展: 加密货币 + 四大新闻社 + 主流媒体)
         print("  ▶ RSS 源...", end=" ", flush=True)
         rss_news = []
-        rss_sources = ["coindesk", "cointelegraph", "decrypt", "yahoo_finance", "reuters"]
+        rss_sources = [
+            "coindesk", "cointelegraph", "decrypt",  # 加密货币
+            "bloomberg", "wsj", "cnbc", "ft",  # 四大新闻社
+            "bbc_business", "economist", "nytimes"  # 其他主流
+        ]
         for source in rss_sources:
             try:
                 news = self.get_rss_news(source, limit=5)
