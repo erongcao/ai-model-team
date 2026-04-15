@@ -124,24 +124,48 @@ ai-model-team/
 ├── SKILL.md                      # Skill 定义文件
 ├── README.md                      # 本文档
 ├── CHANGELOG.md                  # 版本更新记录
-├── requirements.txt               # Python 依赖
+├── requirements.txt               # Python 依赖（精确版本）
 ├── .gitignore                    # Git 忽略配置
 ├── .env                          # 环境变量（API密钥，不在版本控制）
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # CI 冒烟测试
 ├── btc_short_analysis.py         # 快速分析脚本（BTC专用）
 │
 └── scripts/
     ├── model_team.py              # ⭐ 主入口（多模型可配置）
     ├── run_team.py                # 统一 1H×24 预测脚本
-    ├── config.py                  # 配置管理（环境变量加载）
+    ├── config.py                  # 统一配置管理
     │
+    ├── 【模型适配器】
     ├── kronos_adapter.py          # Kronos 模型适配器
     ├── chronos_adapter.py         # Chronos 模型适配器
-    ├── timesfm_adapter.py         # TimesFM 模型适配器
-    ├── moirai_adapter.py          # MOIRAI 模型适配器
+    ├── timesfm_adapter.py        # TimesFM 模型适配器
+    ├── moirai_adapter.py         # MOIRAI 模型适配器
     ├── finbert_adapter.py         # FinBERT 模型适配器
     │
+    ├── 【数据提供】
     ├── okx_data_provider.py      # OKX 数据提供模块
     └── social_sentiment_provider.py  # 社会情绪数据模块
+    │
+    ├── 【P0 基础设施】
+    ├── data_quality.py            # 数据质量校验、时区、schema
+    ├── risk_control.py            # 风控闸门、熔断、仓位管理
+    ├── observability.py            # 结构化日志、指标、告警
+    ├── retry.py                   # 重试策略、超时
+    └── config.py                  # 统一配置管理
+    │
+    ├── 【P1 策略增强】
+    ├── trading_cost.py            # 交易成本模型
+    ├── validation.py              # Walk-forward 验证
+    └── ensemble.py                # 动态加权融合、置信度校准
+    │
+    └── 【P2 生产级】
+    ├── model_registry.py          # 模型注册表、版本管理
+    ├── drift_detection.py         # 漂移检测
+    ├── execution.py              # 智能订单执行
+    ├── security.py               # 安全与合规
+    └── runbook.py                # 运行手册
 ```
 
 ---
@@ -331,38 +355,289 @@ OKX_API_PASSWORD=your_api_password_here
 
 ---
 
-## 依赖
+---
+
+## P0 基础设施（生产级）
+
+### data_quality.py - 数据质量与校验
+
+| 功能 | 说明 |
+|------|------|
+| **时区统一** | 所有数据强制使用 UTC |
+| **数据完整率** | 检查缺失值、重复数据 |
+| **Schema 校验** | OHLC 关系检查、字段类型 |
+| **多源对齐** | K线/订单簿/情绪数据时间对齐 |
+
+```python
+from data_quality import validate_data_quality, TimezoneHandler, SchemaValidator
+
+# UTC 时间处理
+utc_time = TimezoneHandler.now_utc()
+
+# 数据校验
+is_valid, errors = SchemaValidator.validate_kline(df)
+
+# 完整率检查
+report = DataCompletenessChecker.check_dataframe(df, DataSource.OKX_KLINE)
+```
+
+### risk_control.py - 风控闸门与熔断
+
+| 功能 | 说明 |
+|------|------|
+| **仓位限制** | 单标最大仓位 10% |
+| **止损/止盈** | 可配置止损 2%、止盈 4% |
+| **熔断机制** | 连亏 4 次触发冷却 |
+| **日内回撤** | 超 3% 回撤禁止开仓 |
+
+```python
+from risk_control import RiskGate, check_trade_risk
+
+gate = RiskGate()
+result = gate.check(
+    signal_confidence=0.7,
+    signal_direction="bullish",
+    proposed_position_pct=0.1,
+    current_equity=10000
+)
+print(f"决策: {result.decision}, 原因: {result.reason}")
+```
+
+### observability.py - 可观测性
+
+| 功能 | 说明 |
+|------|------|
+| **结构化日志** | JSON 格式，含 trace_id/request_id |
+| **指标埋点** | 延迟、失败率、数据新鲜度 |
+| **告警系统** | Webhook 推送、冷却机制 |
+| **敏感脱敏** | API Key 自动脱敏 |
+
+```python
+from observability import get_logger, get_metrics, get_alerts
+
+logger = get_logger()
+logger.info("预测完成", trace_id="abc123", latency_ms=150)
+
+metrics = get_metrics()
+metrics.increment("prediction.count", tags={"model": "kronos"})
+
+alerts = get_alerts()
+alerts.send("data_source_failure", "error", "OKX API timeout")
+```
+
+### retry.py - 重试与超时
+
+| 功能 | 说明 |
+|------|------|
+| **指数退避** | base × 2^attempt + jitter |
+| **超时控制** | 默认 20 秒 |
+| **可重试异常** | ConnectionError, TimeoutError |
+
+```python
+from retry import with_retry, TimeoutContext
+
+@with_retry(max_attempts=3, timeout=20)
+def fetch_data(): ...
+```
+
+---
+
+## P1 策略增强
+
+### trading_cost.py - 交易成本模型
+
+| 功能 | 说明 |
+|------|------|
+| **手续费** | 双向收取（开仓+平仓）|
+| **滑点估算** | 按流动性分层（高/中/低）|
+| **市场冲击** | 大单冲击成本估算 |
+| **成本检测** | 判断扣除成本后是否盈利 |
+
+```python
+from trading_cost import estimate_net_pnl, LiquidityClassifier
+
+tier = LiquidityClassifier.classify(daily_volume_usd=5_000_000)
+result = estimate_net_pnl(
+    entry_price=100, exit_price=105,
+    quantity=1.0, side="long",
+    liquidity_tier=tier
+)
+print(f"净盈亏: ${result.net_pnl:.2f}, 成本率: {result.cost_ratio:.2%}")
+```
+
+### validation.py - Walk-Forward 验证
+
+| 功能 | 说明 |
+|------|------|
+| **时序验证** | 避免未来数据泄漏 |
+| **方向准确率** | 预测方向 vs 实际方向 |
+| **Brier Score** | 概率校准质量 |
+| **Sharpe/回撤** | 风险调整后收益 |
+
+```python
+from validation import WalkForwardValidator
+
+validator = WalkForwardValidator(n_splits=5, train_ratio=0.7)
+results = validator.validate(df, signal_func=my_signal_generator)
+summary = validator.get_summary(results)
+print(f"平均方向准确率: {summary['avg_direction_accuracy']:.1%}")
+```
+
+### ensemble.py - 动态加权融合
+
+| 功能 | 说明 |
+|------|------|
+| **置信度校准** | Isotonic 回归校准 |
+| **市场状态检测** | 趋势/震荡/高波动 |
+| **动态权重** | 根据市场状态调整 |
+| **贡献分析** | 各模型权重贡献 |
+
+```python
+from ensemble import DynamicWeightedEnsemble, ModelPrediction
+
+ensemble = DynamicWeightedEnsemble()
+ensemble.update_market_state(df_price)
+result = ensemble.fuse(predictions)
+print(f"融合信号: {result.fused_signal}, 置信度: {result.fused_confidence:.0%}")
+```
+
+---
+
+## P2 生产级模块
+
+### model_registry.py - 模型注册表
+
+| 功能 | 说明 |
+|------|------|
+| **版本追踪** | 模型版本、训练数据区间 |
+| **特征签名** | SHA256 哈希校验 |
+| **状态管理** | active/deprecated/retired |
+| **元数据** | 精度、训练数据、创建者 |
+
+```python
+from model_registry import get_model_registry, register_default_models
+
+registry = get_model_registry()
+register_default_models()  # 注册默认模型
+
+model = registry.get_active("kronos-base")
+print(f"版本: {model.version}, 精度: {model.metrics['directional_accuracy']}")
+```
+
+### drift_detection.py - 漂移检测
+
+| 功能 | 说明 |
+|------|------|
+| **PSI 指数** | Population Stability Index |
+| **KL 散度** | 分布漂移检测 |
+| **命中率监控** | 性能下降告警 |
+| **连续告警** | N 次漂移后触发 |
+
+```python
+from drift_detection import DriftMonitor
+
+monitor = DriftMonitor()
+reports = monitor.check_all_inputs({"close": price_data})
+for r in reports:
+    if r.drift_detected:
+        print(f"漂移告警: {r.feature_name}, PSI: {r.current_value}")
+```
+
+### execution.py - 智能订单执行
+
+| 功能 | 说明 |
+|------|------|
+| **订单类型选择** | limit/market/post_only |
+| **拆分优化** | 大单拆分减少冲击 |
+| **滑点估算** | 基于订单簿深度 |
+| **重试机制** | 未成交自动重试 |
+
+```python
+from execution import ExecutionOptimizer, estimate_execution_cost
+
+optimizer = ExecutionOptimizer()
+result = optimizer.execute_smart(
+    symbol="BTC-USDT-SWAP", side="buy",
+    quantity=1.0, price=67000,
+    orderbook_depth=ob_data, urgency="normal"
+)
+print(f"成交率: {result.fill_ratio:.1%}, 滑点: {result.slippage_bps:.1f}bps")
+```
+
+### security.py - 安全与合规
+
+| 功能 | 说明 |
+|------|------|
+| **密钥轮换** | 90 天自动轮换 |
+| **最小权限** | 按任务分配权限 |
+| **审计日志** | 操作追踪、不可篡改 |
+| **敏感脱敏** | 日志自动脱敏 |
+
+```python
+from security import get_key_storage, get_audit_logger
+
+storage = get_key_storage()
+new_id, new_secret = storage.create_key(["read_market", "trade"])
+
+audit = get_audit_logger()
+audit.log("trade", resource="BTC", result="success")
+```
+
+### runbook.py - 运行手册
+
+| 功能 | 说明 |
+|------|------|
+| **故障排查** | 常见问题及解决方案 |
+| **回滚管理** | 配置一键回滚 |
+| **值班指南** | 健康检查清单、升级流程 |
+
+```python
+from runbook import Runbook, RollbackManager, OnCallGuide
+
+# 健康检查
+health = OnCallGuide.get_health_check()
+
+# 故障排查
+entry = Runbook.get_entry("模型加载失败")
+print(entry.resolution)
+
+# 回滚配置
+RollbackManager.create_backup()
+RollbackManager.rollback_config()
+```
+
+---
+
+## 依赖（精确版本）
+
 
 ### 核心依赖
 
 | 包 | 版本 | 用途 |
 |----|------|------|
-| Python | 3.10+ | 运行环境 |
-| numpy | latest | 数值计算 |
-| pandas | latest | 数据处理 |
-| requests | latest | HTTP 请求 |
-| torch | latest | 深度学习框架 |
+| Python | 3.14 | 运行环境 |
+| numpy | 2.4.4 | 数值计算 |
+| pandas | 3.0.2 | 数据处理 |
+| requests | 2.33.1 | HTTP 请求 |
+| torch | 2.11.0 | 深度学习框架 |
 
 ### 模型依赖
 
 | 包 | 版本 | 用途 |
 |----|------|------|
-| timesfm | latest | Google TimesFM 模型 |
-| chronos-forest | ≥3.0 | Amazon Chronos 模型 |
-| transformers | ≥4.57 | HuggingFace 模型加载 |
-| feedparser | latest | RSS 新闻解析 |
+| transformers | 4.57.6 | HuggingFace 模型 |
+| huggingface_hub | 0.36.2 | 模型下载 |
+| feedparser | 6.0.12 | RSS 解析 |
+| timesfm | (本地) | Google TimesFM |
+| chronos-forest | (Git) | Amazon Chronos |
 
-### 安装方式
+### 完整依赖列表
 
 ```bash
-# 方式1: 使用 requirements.txt
 pip install -r requirements.txt
-
-# 方式2: 单独安装
-pip install numpy pandas requests torch transformers feedparser
-pip install timesfm
-pip install "git+https://github.com/amazon-science/chronos-forecasting.git"
 ```
+
+所有依赖版本已锁定在 `requirements.txt` 中。
 
 ---
 
