@@ -38,6 +38,8 @@
 
 - `psutil` 依赖已锁定版本 (`7.2.2`) — 无需修复
 - 所有 GitHub 安装使用明确 commit hash，确保可复现性
+- 新增 `post_install.py` — 自动修复 timesfm 兼容性问题
+- 新增 `docs/KRONOS_MODEL_CARD.md` — Kronos 模型透明度文档
 
 ---
 
@@ -81,7 +83,7 @@
 - **输入**: OKX K线数据 (OHLCV)
 - **输出**: 价格方向、涨跌百分比、趋势强度
 - **特点**: 专门针对加密货币K线训练，识别庄家行为
-
+- **模型卡**: [docs/KRONOS_MODEL_CARD.md](docs/KRONOS_MODEL_CARD.md)  
 #### 2. Chronos-2 (Amazon)
 - **模型ID**: `amazon/chronos-2` (HuggingFace)
 - **输入**: 时间序列数值 (float32)
@@ -200,7 +202,8 @@ ai-model-team/
     ├── execution.py              # 智能订单执行
     ├── security.py               # 安全与合规
     ├── runbook.py                # 运行手册
-    └── leak_audit.py             # 泄漏审计 (P3)
+    ├── leak_audit.py             # 泄漏审计 (P3)
+    └── post_install.py           # 安装后自动修复脚本
 ```
 
 ---

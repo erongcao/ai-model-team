@@ -17,6 +17,16 @@
 ### ✅ Other
 - `psutil==7.2.2` 已锁定版本 (审核报告有误)
 
+#### New Files
+- **scripts/post_install.py** - 安装后自动修复脚本
+  - 自动修复 timesfm 的 `proxies` 参数兼容性问题
+  - 验证依赖安装完整性
+- **docs/KRONOS_MODEL_CARD.md** - Kronos 模型透明度文档
+  - 训练数据说明
+  - 模型架构
+  - 评估指标
+  - 风险提示
+
 ---
 
 ## [2.1.0] - 2026-04-15
