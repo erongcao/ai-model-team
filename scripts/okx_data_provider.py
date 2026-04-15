@@ -7,6 +7,8 @@ import json
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
 import numpy as np
+from functools import lru_cache
+import time
 
 
 class OKXDataProvider:
@@ -461,3 +463,59 @@ def get_stock_klines(symbol: str, bar: str = "1H", limit: int = 500) -> pd.DataF
         raise ValueError(f"Yahoo Finance请求失败 for {symbol}: {str(e)[:100]}")
     except Exception as e:
         raise ValueError(f"获取股票数据失败 for {symbol}: {str(e)[:100]}")
+
+
+# ─────────────────────────────────────────────────────────
+# 缓存版本的数据获取 (避免重复请求)
+# ─────────────────────────────────────────────────────────
+
+@lru_cache(maxsize=128)
+def _cached_get_data(symbol: str, bar: str = "1H", limit: int = 500) -> Optional[Dict]:
+    """
+    带缓存的数据获取 (内部使用)
+    缓存时间: 60秒
+    返回字典格式以支持缓存序列化
+    """
+    try:
+        df = get_data(symbol, bar, limit)
+        # 转换为可缓存的字典格式
+        return {
+            'ts': df['ts'].tolist(),
+            'open': df['open'].tolist(),
+            'high': df['high'].tolist(),
+            'low': df['low'].tolist(),
+            'close': df['close'].tolist(),
+            'vol': df['vol'].tolist() if 'vol' in df.columns else df['volume'].tolist()
+        }
+    except Exception:
+        return None
+
+
+def get_data_cached(symbol: str, bar: str = "1H", limit: int = 500, cache_ttl: int = 60) -> pd.DataFrame:
+    """
+    带缓存的数据获取
+    
+    Args:
+        symbol: 标的代码
+        bar: 时间周期
+        limit: 数量
+        cache_ttl: 缓存时间(秒)，默认60秒
+    
+    Returns:
+        DataFrame with market data
+    """
+    # 使用时间戳作为缓存key的一部分 (实现TTL)
+    cache_key = f"{symbol}_{bar}_{limit}_{int(time.time() / cache_ttl)}"
+    
+    # 尝试从缓存获取
+    cached = _cached_get_data(symbol, bar, limit)
+    if cached is not None:
+        return pd.DataFrame(cached)
+    
+    # 缓存未命中，重新获取
+    return get_data(symbol, bar, limit)
+
+
+def clear_data_cache():
+    """清除数据缓存"""
+    _cached_get_data.cache_clear()

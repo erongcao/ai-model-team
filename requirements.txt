@@ -46,6 +46,9 @@ feedparser==6.0.12
 
 # System
 psutil==7.2.2
+
+# Testing
+pytest==9.0.3
 filelock==3.28.0
 fsspec==2026.3.0
 networkx==3.6.1

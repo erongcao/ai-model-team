@@ -6,9 +6,11 @@ import requests
 import feedparser
 import re
 import hashlib
-from typing import List, Dict, Set, Optional
+import time
+from typing import List, Dict, Set, Optional, Callable
 from datetime import datetime, timedelta, timezone
 from collections import Counter
+from functools import wraps
 
 # P1 配置
 SENTIMENT_SOURCE_WEIGHTS = {"news": 0.5, "reddit": 0.3, "rss": 0.2}
@@ -90,6 +92,27 @@ class SocialSentimentProvider:
     REDDIT_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
+
+    # 重试配置
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2  # 秒
+
+    @staticmethod
+    def _retry_request(func: Callable) -> Callable:
+        """请求重试装饰器"""
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(SocialSentimentProvider.MAX_RETRIES):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    if attempt < SocialSentimentProvider.MAX_RETRIES - 1:
+                        time.sleep(SocialSentimentProvider.RETRY_DELAY * (attempt + 1))
+            # 所有重试都失败
+            raise last_error
+        return wrapper
 
     RSS_SOURCES = {
         # 加密货币
@@ -205,75 +228,92 @@ class SocialSentimentProvider:
             return []
 
     def get_reddit_sentiment(self, subreddit: str = "cryptocurrency", limit: int = 25) -> Dict:
-        """获取 Reddit 社区情绪（带错误处理）"""
-        try:
-            url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}"
-            response = requests.get(url, headers=self.REDDIT_HEADERS, timeout=15)
-            if response.status_code != 200:
-                return {"error": f"HTTP {response.status_code}", "posts_analyzed": 0}
-            data = response.json()
-            posts = data.get("data", {}).get("children", [])
-            sentiment_data = {
-                "source": "reddit",
-                "subreddit": subreddit,
-                "posts_analyzed": 0,
-                "total_score": 0,
-                "sentiment_indicators": {
-                    "bullish_keywords": 0, "bearish_keywords": 0,
-                    "fomo_keywords": 0, "fear_keywords": 0
-                },
-                "hot_topics": []
-            }
-            bullish_words = ['bull', 'bullish', 'moon', 'pump', 'hodl', 'buy', 'long', 'breakout', 'ath']
-            bearish_words = ['bear', 'bearish', 'dump', 'crash', 'sell', 'short', 'bottom', 'capitulation']
-            fomo_words = ['fomo', 'getting in', 'jump in', "don't miss"]
-            fear_words = ['panic', 'scared', 'worried', 'crash coming', 'bubble', 'scam', 'rug pull']
-
-            for post in posts:
-                post_data = post.get("data", {})
-                title = post_data.get("title", "").lower()
-                selftext = post_data.get("selftext", "").lower()
-                full_text = title + " " + selftext
-
-                # 去重
-                if self.dedup.is_duplicate(post_data.get("title", "")):
+        """获取 Reddit 社区情绪（带错误处理和重试）"""
+        # 重试逻辑
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}"
+                response = requests.get(url, headers=self.REDDIT_HEADERS, timeout=15)
+                
+                # 429 Too Many Requests - 等待后重试
+                if response.status_code == 429:
+                    wait_time = self.RETRY_DELAY * (attempt + 1)
+                    print(f"  ⚠️ Reddit API 限流，等待 {wait_time}s...")
+                    time.sleep(wait_time)
                     continue
+                
+                if response.status_code != 200:
+                    return {"error": f"HTTP {response.status_code}", "posts_analyzed": 0}
+                
+                data = response.json()
+                posts = data.get("data", {}).get("children", [])
+                
+                sentiment_data = {
+                    "source": "reddit",
+                    "subreddit": subreddit,
+                    "posts_analyzed": 0,
+                    "total_score": 0,
+                    "sentiment_indicators": {
+                        "bullish_keywords": 0, "bearish_keywords": 0,
+                        "fomo_keywords": 0, "fear_keywords": 0
+                    },
+                    "hot_topics": []
+                }
+                bullish_words = ['bull', 'bullish', 'moon', 'pump', 'hodl', 'buy', 'long', 'breakout', 'ath']
+                bearish_words = ['bear', 'bearish', 'dump', 'crash', 'sell', 'short', 'bottom', 'capitulation']
+                fomo_words = ['fomo', 'getting in', 'jump in', "don't miss"]
+                fear_words = ['panic', 'scared', 'worried', 'crash coming', 'bubble', 'scam', 'rug pull']
 
-                sentiment_data["posts_analyzed"] += 1
-                sentiment_data["total_score"] += post_data.get("score", 0)
+                for post in posts:
+                    post_data = post.get("data", {})
+                    title = post_data.get("title", "").lower()
+                    selftext = post_data.get("selftext", "").lower()
+                    full_text = title + " " + selftext
 
-                for word in bullish_words:
-                    if word in full_text:
-                        sentiment_data["sentiment_indicators"]["bullish_keywords"] += 1
-                for word in bearish_words:
-                    if word in full_text:
-                        sentiment_data["sentiment_indicators"]["bearish_keywords"] += 1
-                for word in fomo_words:
-                    if word in full_text:
-                        sentiment_data["sentiment_indicators"]["fomo_keywords"] += 1
-                for word in fear_words:
-                    if word in full_text:
-                        sentiment_data["sentiment_indicators"]["fear_keywords"] += 1
+                    # 去重
+                    if self.dedup.is_duplicate(post_data.get("title", "")):
+                        continue
 
-                if post_data.get("score", 0) > 50:
-                    sentiment_data["hot_topics"].append({
-                        "title": post_data.get("title", "")[:100],
-                        "score": post_data.get("score", 0)
-                    })
+                    sentiment_data["posts_analyzed"] += 1
+                    sentiment_data["total_score"] += post_data.get("score", 0)
 
-            total = sum(sentiment_data["sentiment_indicators"].values())
-            if total > 0:
-                b = sentiment_data["sentiment_indicators"]["bullish_keywords"] / total
-                br = sentiment_data["sentiment_indicators"]["bearish_keywords"] / total
-                sentiment_data["overall_sentiment"] = "bullish" if b > br * 1.5 else "bearish" if br > b * 1.5 else "mixed"
-            else:
-                sentiment_data["overall_sentiment"] = "neutral"
+                    for word in bullish_words:
+                        if word in full_text:
+                            sentiment_data["sentiment_indicators"]["bullish_keywords"] += 1
+                    for word in bearish_words:
+                        if word in full_text:
+                            sentiment_data["sentiment_indicators"]["bearish_keywords"] += 1
+                    for word in fomo_words:
+                        if word in full_text:
+                            sentiment_data["sentiment_indicators"]["fomo_keywords"] += 1
+                    for word in fear_words:
+                        if word in full_text:
+                            sentiment_data["sentiment_indicators"]["fear_keywords"] += 1
 
-            # 添加权重
-            sentiment_data["weight"] = self.SOURCE_WEIGHTS.get("reddit", 0.25)
-            return sentiment_data
-        except Exception as e:
-            return {"error": str(e)}
+                    if post_data.get("score", 0) > 50:
+                        sentiment_data["hot_topics"].append({
+                            "title": post_data.get("title", "")[:100],
+                            "score": post_data.get("score", 0)
+                        })
+
+                total = sum(sentiment_data["sentiment_indicators"].values())
+                if total > 0:
+                    b = sentiment_data["sentiment_indicators"]["bullish_keywords"] / total
+                    br = sentiment_data["sentiment_indicators"]["bearish_keywords"] / total
+                    sentiment_data["overall_sentiment"] = "bullish" if b > br * 1.5 else "bearish" if br > b * 1.5 else "mixed"
+                else:
+                    sentiment_data["overall_sentiment"] = "neutral"
+
+                # 添加权重
+                sentiment_data["weight"] = self.SOURCE_WEIGHTS.get("reddit", 0.25)
+                return sentiment_data
+            except Exception as e:
+                last_error = e
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(self.RETRY_DELAY)
+                    continue
+        return {"error": str(last_error), "posts_analyzed": 0}
 
     def get_rss_news(self, source: str = "coindesk", limit: int = 10) -> List[Dict]:
         """获取 RSS 新闻源"""
@@ -358,6 +398,12 @@ class SocialSentimentProvider:
             try:
                 url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}"
                 response = requests.get(url, headers=self.REDDIT_HEADERS, timeout=10)
+                
+                # 429 Too Many Requests - 跳过这个subreddit，稍后重试
+                if response.status_code == 429:
+                    print(f"  ⚠️ Reddit API 限流 (r/{subreddit}), 跳过")
+                    continue
+                
                 if response.status_code != 200:
                     continue
                 
