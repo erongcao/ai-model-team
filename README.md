@@ -1,6 +1,42 @@
 # AI Model Team
 
-**Version:** 2.2.0  
+**Version:** 2.8.0
+**Release Date:** 2026-04-16
+
+---
+
+## v2.8.0 数据源路由修复 (2026-04-16)
+
+### 🐛 严重 Bug 修复
+
+| 问题 | 修复前 | 修复后 |
+|------|--------|--------|
+| **ETH 价格错误** | `$22` (Yahoo Finance Grayscale ETF) | `$2,350` (OKX 原生价格) |
+| **数据源路由** | ETH 被错误送入 Yahoo Finance | ETH → OKX，股票 → Yahoo Finance |
+| **影响范围** | Chronos-2 / TimesFM 对 ETH 的全部预测 | 预测价格已修正 |
+
+### 🔍 根因分析
+
+Yahoo Finance 的 `ETH` 符号代表 **Grayscale Ethereum Mini Trust ETF**，价格约 `$22`，而非 ETH 加密货币本身（`$2,350`）。两者相差 **100 倍**。
+
+原代码将 `ETH` 错误地放在 `STOCK_SYMBOLS` 集合中（注释写"明确不是股票"），导致 `get_data()` 将 ETH 判定为"股票"并送往 Yahoo Finance。
+
+### 📡 数据源路由规则
+
+| 资产类型 | 数据来源 | 说明 |
+|---------|---------|------|
+| 加密货币 (BTC/ETH/SOL/DOGE/XRP/ADA/AVAX/DOT/LINK/MATIC/UNI/ATOM) | **OKX** | 走 OKX API，永续合约/现货 |
+| 美股 (NVDA/AAPL/MSFT/GOOGL/AMZN/TSLA/META/...) | **Yahoo Finance** | 通过 `yfinance` 接口 |
+
+### ✅ 修复内容
+
+- 新增 `CRYPTO_EXCLUSIONS` 排除列表（明确加密货币不走 Yahoo Finance）
+- 修复 `CRYPTO_EXCLUSIONS` 逻辑：`is_stock = symbol NOT IN CRYPTO_EXCLUSIONS`
+- 扩展排除列表：`LINK`, `MATIC`, `UNI`, `ATOM`, `USDC`
+
+---
+
+## v2.7.0 单元测试 + 缓存 + 重试 (2026-04-16)  
 **Release Date:** 2026-04-15  
 **Author:** NeoQuasar AI Lab
 
