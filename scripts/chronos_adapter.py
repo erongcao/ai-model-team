@@ -8,7 +8,7 @@ from typing import Dict
 
 # 使用新的 OKX 数据提供模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from okx_data_provider import OKXDataProvider, get_klines
+from okx_data_provider import OKXDataProvider, get_klines, get_data
 
 # 信号阈值配置（可调）
 BULLISH_THRESHOLD = 2.0
@@ -65,7 +65,7 @@ class ChronosAdapter:
                  lookback: int = 128, pred_len: int = 24) -> Dict:
         try:
             pipeline = self.load()
-            df = get_klines(symbol, bar=bar, limit=lookback + pred_len + 50)
+            df = get_data(symbol, bar=bar, limit=lookback + pred_len + 50)
             df = df.tail(lookback + pred_len).reset_index(drop=True)
 
             context = df["close"].values[-lookback:].tolist()

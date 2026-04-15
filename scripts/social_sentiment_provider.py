@@ -86,7 +86,10 @@ class SpamFilter:
 class SocialSentimentProvider:
     """社会情绪数据提供者 (P1增强版)"""
 
-    REDDIT_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+    # Reddit API 需要完整的 User-Agent，否则会被拒绝
+    REDDIT_HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
     RSS_SOURCES = {
         # 加密货币
@@ -202,12 +205,12 @@ class SocialSentimentProvider:
             return []
 
     def get_reddit_sentiment(self, subreddit: str = "cryptocurrency", limit: int = 25) -> Dict:
-        """获取 Reddit 社区情绪"""
+        """获取 Reddit 社区情绪（带错误处理）"""
         try:
             url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}"
             response = requests.get(url, headers=self.REDDIT_HEADERS, timeout=15)
             if response.status_code != 200:
-                return {"error": f"HTTP {response.status_code}"}
+                return {"error": f"HTTP {response.status_code}", "posts_analyzed": 0}
             data = response.json()
             posts = data.get("data", {}).get("children", [])
             sentiment_data = {

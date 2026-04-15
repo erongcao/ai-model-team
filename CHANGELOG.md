@@ -1,5 +1,28 @@
 # AI Model Team Changelog
 
+## [2.5.0] - 2026-04-16
+
+### 🐛 Fixed (Code Robustness)
+
+#### 1. Kronos Adapter 错误处理
+- 添加完整的 try/except 错误处理
+- 数据获取失败、模型预测失败时优雅降级
+- 返回结构化错误结果而非崩溃
+
+#### 2. Reddit User-Agent 增强
+- 增强 User-Agent 字符串（完整浏览器信息）
+- Reddit API 被拒时返回 `{"error": "HTTP xxx", "posts_analyzed": 0}`
+- 避免崩溃，保证情绪分析继续运行
+
+#### 3. 美股数据支持 (Yahoo Finance)
+- 新增 `get_stock_klines()` 函数支持 NVDA/AAPL/MSFT 等美股
+- 新增 `get_data()` 自动检测股票/加密货币
+- 自动选择 OKX API 或 Yahoo Finance
+- 支持: NVDA, AAPL, MSFT, GOOGL, AMZN, TSLA, META 等
+- Chronos-2 可对 NVDA 进行预测
+
+---
+
 ## [2.4.0] - 2026-04-15
 
 ### 🐛 Fixed (Critical - FinBERT 模型加载超时)

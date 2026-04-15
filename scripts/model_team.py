@@ -46,20 +46,13 @@ OKX_BASE = "https://www.okx.com/api/v5"
 
 
 def get_klines(symbol: str, bar: str = "4H", limit: int = 200):
-    """Fetch OKX K-line data"""
-    import requests, pandas as pd
-    for inst in [symbol, f"{symbol}-SWAP"]:
-        url = f"{OKX_BASE}/market/history-candles"
-        r = requests.get(url, params={"instId": inst, "bar": bar, "limit": limit}, timeout=30)
-        d = r.json()
-        if d.get("code") == "0" and d.get("data"):
-            cols = ["ts", "open", "high", "low", "close", "vol", "vol2", "vol3", "confirm"]
-            df = pd.DataFrame(d["data"], columns=cols)
-            for c in ["open", "high", "low", "close", "vol"]:
-                df[c] = pd.to_numeric(df[c])
-            df["ts"] = pd.to_datetime(df["ts"].astype(float), unit="ms")
-            return df.sort_values("ts").to_dict()
-    return {}
+    """Fetch K-line data (OKX for crypto, Yahoo Finance for stocks)"""
+    from okx_data_provider import get_data
+    try:
+        df = get_data(symbol, bar=bar, limit=limit)
+        return df.to_dict()
+    except ValueError:
+        return {}
 
 
 def apply_risk_gate(
