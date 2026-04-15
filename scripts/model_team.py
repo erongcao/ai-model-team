@@ -322,7 +322,7 @@ def main():
     parser.add_argument("--json", "-j", action="store_true", help="JSON格式输出")
     parser.add_argument("--social", action="store_true", help="显示社会情绪分析")
     parser.add_argument("--equity", type=float, default=10000.0, help="当前资金 (默认: 10000)")
-    parser.add_argument("--position", type=float, default=0.1, help="建议仓位 (默认: 10%)")
+    parser.add_argument("--position", type=float, default=0.1, help="建议仓位百分比 (default: 0.1)")
     args = parser.parse_args()
 
     model_list = [m.strip() for m in args.models.split(",")]
