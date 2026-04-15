@@ -1,0 +1,9 @@
+# Exclude large model caches and virtual environments
+timesfm_only/
+timesfm_env/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.clawhub/
+*.log

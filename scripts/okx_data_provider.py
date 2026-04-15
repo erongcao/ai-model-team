@@ -330,8 +330,13 @@ def get_data(symbol: str, bar: str = "1H", limit: int = 500) -> pd.DataFrame:
     # 美股代码列表 (常见科技股)
     STOCK_SYMBOLS = {
         'NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA',
-        'NFLX', 'AMD', 'INTC', 'CRM', 'ORCL', 'IBM', 'QCOM',
-        'BTC', 'ETH', 'SOL', 'DOGE', 'XRP'  # 明确不是股票
+        'NFLX', 'AMD', 'INTC', 'CRM', 'ORCL', 'IBM', 'QCOM'
+    }
+    
+    # 明确不是股票的加密货币（避免 Yahoo Finance 将 ETF 代码误识别）
+    CRYPTO_EXCLUSIONS = {
+        'BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'AVAX', 'DOT',
+        'USDT', 'OKB', 'USDC', 'LINK', 'MATIC', 'UNI', 'ATOM'
     }
     
     # 检测是否是股票代码
@@ -339,15 +344,15 @@ def get_data(symbol: str, bar: str = "1H", limit: int = 500) -> pd.DataFrame:
     # NVDA-USDT-SWAP -> NVDA
     symbol_upper = symbol.upper().replace('-USDT-SWAP', '').replace('-USDT', '')
     
-    # 判断逻辑：长度<=5, 纯字母, 不在排除列表
+    # 判断逻辑：纯字母 + 长度<=5 + 不在加密货币排除列表 = 可能是股票
     is_stock = (
         symbol_upper in STOCK_SYMBOLS or
-        (len(symbol_upper) <= 5 and symbol_upper.isalpha() and symbol_upper not in STOCK_SYMBOLS)
+        (len(symbol_upper) <= 5 and symbol_upper.isalpha() and symbol_upper not in CRYPTO_EXCLUSIONS)
     )
     
-    # 二次判断：如果去掉-USDT后是纯字母且不在OKX常见币种，也当作股票
-    okx_common = {'BTC', 'ETH', 'USDT', 'OKB', 'SOL', 'DOGE', 'XRP', 'ADA', 'AVAX', 'DOT'}
-    if symbol_upper.replace('-', '').isalpha() and symbol_upper not in okx_common:
+    # 二次判断：如果不在排除列表也不在常见加密货币列表，可能真的是股票
+    okx_common = {'BTC', 'ETH', 'USDT', 'OKB', 'SOL', 'DOGE', 'XRP', 'ADA', 'AVAX', 'DOT', 'LINK', 'MATIC'}
+    if symbol_upper.replace('-', '').isalpha() and symbol_upper not in okx_common and symbol_upper not in CRYPTO_EXCLUSIONS:
         is_stock = True
     
     if is_stock:
