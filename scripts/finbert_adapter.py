@@ -43,31 +43,50 @@ class FinBERTAdapter:
         return models.get(variant, "ProsusAI/finbert")
     
     def load(self):
-        """加载FinBERT模型"""
+        """加载FinBERT模型 (带15秒超时)"""
         if FinBERTAdapter._model is None:
-            try:
-                from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-                
-                print(f"  加载 {self.model_name}...", end=" ", flush=True)
-                
-                # 加载tokenizer和模型
-                tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
-                
-                # 创建情感分析pipeline
-                FinBERTAdapter._tokenizer = tokenizer
-                FinBERTAdapter._model = model
-                FinBERTAdapter._classifier = pipeline(
-                    "sentiment-analysis",
-                    model=model,
-                    tokenizer=tokenizer,
-                    device=0 if torch.cuda.is_available() else -1
-                )
-                print("✅")
-                
-            except Exception as e:
-                print(f"❌ 加载失败: {e}")
-                # 回退到简单关键词分析
+            import threading
+            import sys
+            
+            result = {"success": False, "error": None}
+            
+            def _try_load():
+                try:
+                    from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+                    import os
+                    
+                    os.environ['HF_HUB_DISABLE_SYMLINKS'] = '1'
+                    os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+                    
+                    tokenizer = AutoTokenizer.from_pretrained(self.model_name, timeout=15)
+                    model = AutoModelForSequenceClassification.from_pretrained(self.model_name, timeout=15)
+                    
+                    FinBERTAdapter._tokenizer = tokenizer
+                    FinBERTAdapter._model = model
+                    FinBERTAdapter._classifier = pipeline(
+                        "sentiment-analysis",
+                        model=model,
+                        tokenizer=tokenizer,
+                        device=0 if torch.cuda.is_available() else -1
+                    )
+                    result["success"] = True
+                except Exception as e:
+                    result["error"] = str(e)
+            
+            print(f"  加载 {self.model_name}...", end=" ", flush=True)
+            
+            thread = threading.Thread(target=_try_load, daemon=True)
+            thread.start()
+            thread.join(timeout=15)  # 最多等待15秒
+            
+            if thread.is_alive():
+                # 超时 - 回退到关键词分析
+                print(f"❌ 加载超时")
+                FinBERTAdapter._model = "fallback"
+            elif result["success"]:
+                print(f"✅")
+            else:
+                print(f"❌ {result['error'][:50]}")
                 FinBERTAdapter._model = "fallback"
                 
         return FinBERTAdapter._model

@@ -106,21 +106,55 @@ class SocialSentimentProvider:
 
     # 来源权重
     SOURCE_WEIGHTS = {
-        "reddit": 0.25,
         # 加密货币
         "coindesk": 0.15,
         "cointelegraph": 0.15,
         "decrypt": 0.05,
         # 四大新闻社
-        "bloomberg": 0.10,
-        "wsj": 0.08,
-        "cnbc": 0.08,
-        "ft": 0.05,
+        "bloomberg": 0.12,
+        "wsj": 0.10,
+        "cnbc": 0.10,
+        "ft": 0.08,
         # 其他媒体
-        "bbc_business": 0.05,
-        "economist": 0.02,
-        "nytimes": 0.02
+        "bbc_business": 0.08,
+        "economist": 0.04,
+        "nytimes": 0.03
     }
+
+    # Reddit 板块配置 (按类型分组)
+    SUBREDDITS = {
+        "crypto": ["cryptocurrency", "BitCoin", "ethereum", "SOLToken", "CardanoEGLD"],
+        "stocks": ["stocks", "investing", "wallstreetbets", "StockMarket", "Smallistening"],
+        "tech": ["NVDA", "Apple", "TechStock", "Google", "Microsoft"],  # stock-specific
+        "general": ["business", "economics", "finance"]
+    }
+
+    # 股票相关Reddit板块
+    STOCK_SUBREDDITS = ["stocks", "investing", "wallstreetbets", "StockMarket", "Smallistening"]
+
+    # 通用财经/国际新闻RSS (对股市/数字货币影响极大)
+    GENERAL_NEWS_SOURCES = {
+        "reuters_world": "https://feeds.reuters.com/reuters/worldNews",
+        "reuters_business": "https://feeds.reuters.com/reuters/businessNews",
+        "reuters_markets": "https://feeds.reuters.com/reuters/marketsNews",
+        "bbc_world": "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "bbc_us": "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
+        "cnn_business": "http://rss.cnn.com/rss/money_latest.rss",
+        "guardian_business": "https://www.theguardian.com/business/rss",
+        "wsj_world": "https://feeds.a.dj.com/rss/worldNews.xml",
+    }
+
+    # 情绪关键词 (扩展版 - 包含宏观经济)
+    BULLISH_WORDS = [
+        'bull', 'bullish', 'moon', 'pump', 'hodl', 'buy', 'long', 'breakout', 'ath',
+        'surge', 'rally', 'gain', 'soar', 'jump', 'rise', 'up', 'growth', 'profit',
+        'beat', 'exceed', 'strong', 'optimistic', 'recover', 'boom'
+    ]
+    BEARISH_WORDS = [
+        'bear', 'bearish', 'dump', 'crash', 'sell', 'short', 'bottom', 'capitulation',
+        'drop', 'fall', 'plunge', 'tumble', 'decline', 'down', 'loss', 'weak',
+        'miss', 'concern', 'recession', 'bubble', 'panic', 'scare'
+    ]
 
     def __init__(self):
         self.dedup = ContentDeduplicator()
@@ -253,17 +287,18 @@ class SocialSentimentProvider:
                 if self.dedup.is_duplicate(entry.get("title", "")):
                     continue
 
-                positive_words = ['surge', 'rally', 'gain', 'bull', 'breakout', 'adoption', 'partnership']
-                negative_words = ['crash', 'dump', 'fall', 'bear', 'ban', 'hack', 'scam', 'fear']
+                positive_words = ['surge', 'rally', 'gain', 'bull', 'breakout', 'adoption', 'partnership', 'soar', 'jump', 'rise']
+                negative_words = ['crash', 'dump', 'fall', 'bear', 'ban', 'hack', 'scam', 'fear', 'drop', 'plunge', 'tumble']
                 pos_count = sum(1 for w in positive_words if w in title)
                 neg_count = sum(1 for w in negative_words if w in title)
                 sentiment = "positive" if pos_count > neg_count else "negative" if neg_count > pos_count else "neutral"
-
+                
                 news_items.append({
                     "source": source,
                     "title": entry.get("title", ""),
                     "link": entry.get("link", ""),
                     "sentiment": sentiment,
+                    "sentiment_score": (pos_count - neg_count) / max(pos_count + neg_count, 1),  # 添加情绪得分
                     "weight": self.SOURCE_WEIGHTS.get(source, 0.1)
                 })
             return news_items
@@ -292,33 +327,130 @@ class SocialSentimentProvider:
 
         return sentiment_items
 
-    def get_combined_sentiment(self, currency: str = "BTC") -> Dict:
-        """获取综合社会情绪 (P1增强版) - 已修复: 移除broken的CryptoPanic"""
-        print(f"📊 获取 {currency} 社会情绪数据...")
-
-        # Reddit (主要来源)
-        print("  ▶ Reddit...", end=" ", flush=True)
-        reddit_data = self.get_reddit_sentiment("cryptocurrency", limit=25)
-        if "error" not in reddit_data:
-            print(f"✅ {reddit_data.get('posts_analyzed', 0)} 帖")
+    def get_reddit_multi_subreddit(self, currency: str = "BTC", limit: int = 25) -> Dict:
+        """从多个subreddit获取情绪 (加密货币 + 股票 + 通用)"""
+        combined_data = {
+            "posts_analyzed": 0,
+            "total_score": 0,
+            "sentiment_indicators": {
+                "bullish_keywords": 0, "bearish_keywords": 0,
+                "fomo_keywords": 0, "fear_keywords": 0
+            },
+            "hot_topics": []
+        }
+        
+        # 确定查询哪个subreddit组
+        # 如果是股票代码(如NVDA, AAPL)，用stocks组；否则用crypto组
+        stock_symbols = ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'BTC', 'ETH']
+        use_stocks = currency.upper() in stock_symbols or len(currency) <= 5
+        
+        if use_stocks:
+            # 股票/通用财经subreddits
+            subreddits_to_query = self.STOCK_SUBREDDITS + ["cryptocurrency"]
         else:
-            print(f"❌ {reddit_data.get('error')}")
-
-        # RSS 源 (扩展: 加密货币 + 四大新闻社 + 主流媒体)
-        print("  ▶ RSS 源...", end=" ", flush=True)
-        rss_news = []
-        rss_sources = [
-            "coindesk", "cointelegraph", "decrypt",  # 加密货币
-            "bloomberg", "wsj", "cnbc", "ft",  # 四大新闻社
-            "bbc_business", "economist", "nytimes"  # 其他主流
-        ]
-        for source in rss_sources:
+            # 加密货币subreddits
+            subreddits_to_query = self.SUBREDDITS["crypto"]
+        
+        for subreddit in subreddits_to_query:
             try:
-                news = self.get_rss_news(source, limit=5)
-                rss_news.extend(news)
+                url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}"
+                response = requests.get(url, headers=self.REDDIT_HEADERS, timeout=10)
+                if response.status_code != 200:
+                    continue
+                
+                posts = response.json().get("data", {}).get("children", [])
+                
+                for post in posts[:limit]:
+                    post_data = post.get("data", {})
+                    title = post_data.get("title", "").lower()
+                    selftext = post_data.get("selftext", "").lower()
+                    full_text = title + " " + selftext
+                    
+                    combined_data["posts_analyzed"] += 1
+                    combined_data["total_score"] += post_data.get("score", 0)
+                    
+                    for word in self.BULLISH_WORDS:
+                        if word in full_text:
+                            combined_data["sentiment_indicators"]["bullish_keywords"] += 1
+                    for word in self.BEARISH_WORDS:
+                        if word in full_text:
+                            combined_data["sentiment_indicators"]["bearish_keywords"] += 1
+                    
+                    if post_data.get("score", 0) > 100:
+                        combined_data["hot_topics"].append({
+                            "title": post_data.get("title", "")[:100],
+                            "score": post_data.get("score", 0),
+                            "subreddit": subreddit
+                        })
             except Exception:
                 pass
-        print(f"✅ {len(rss_news)} 条")
+        
+        # 计算情绪
+        total = sum(combined_data["sentiment_indicators"].values())
+        if total > 0:
+            b = combined_data["sentiment_indicators"]["bullish_keywords"] / total
+            br = combined_data["sentiment_indicators"]["bearish_keywords"] / total
+            combined_data["sentiment_score"] = b - br
+        else:
+            combined_data["sentiment_score"] = 0
+        
+        return combined_data
+
+    def get_general_news(self, currency: str = "BTC", limit: int = 10) -> List[Dict]:
+        """获取通用财经/国际新闻 (对股市/数字货币影响极大)"""
+        all_news = []
+        
+        for source_name, url in self.GENERAL_NEWS_SOURCES.items():
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:limit]:
+                    title = entry.get("title", "")
+                    
+                    # 检查是否与currency相关 (标题中包含相关词)
+                    relevance_score = 0
+                    title_lower = title.lower()
+                    
+                    # 加密货币相关关键词
+                    crypto_keywords = ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'coin', 'blockchain', 'solana', 'sol']
+                    # 股票/市场关键词
+                    stock_keywords = ['stock', 'market', 'nasdaq', 'dow', 's&p', 'fed', 'rate', 'inflation', 'economy']
+                    # 地缘政治
+                    geo_keywords = ['trump', 'china', 'tariff', 'trade', 'war', 'sanction', 'oil', 'iran', 'russia']
+                    
+                    # 计算相关性
+                    if currency.lower() in title_lower:
+                        relevance_score = 1.0
+                    else:
+                        keywords = crypto_keywords + stock_keywords + geo_keywords
+                        for kw in keywords:
+                            if kw in title_lower:
+                                relevance_score += 0.2
+                    
+                    # 情绪分析 (使用扩展关键词)
+                    title_lower = title.lower()
+                    pos_count = sum(1 for w in self.BULLISH_WORDS if w in title_lower)
+                    neg_count = sum(1 for w in self.BEARISH_WORDS if w in title_lower)
+                    
+                    if pos_count > neg_count:
+                        sentiment = "positive"
+                    elif neg_count > pos_count:
+                        sentiment = "negative"
+                    else:
+                        sentiment = "neutral"
+                    
+                    all_news.append({
+                        "source": source_name,
+                        "title": title,
+                        "sentiment": sentiment,
+                        "sentiment_score": (pos_count - neg_count) / max(pos_count + neg_count, 1),
+                        "relevance_score": relevance_score,
+                        "weight": 0.1 + relevance_score * 0.2,  # 高相关性 = 高权重
+                        "link": entry.get("link", "")
+                    })
+            except Exception:
+                pass
+        
+        return all_news
 
         # 应用时间衰减
         rss_news = self.apply_time_decay(rss_news)
@@ -335,15 +467,78 @@ class SocialSentimentProvider:
 
         news_score = weighted_sum / weight_sum if weight_sum > 0 else 0
 
-        # Reddit 情绪
+    def get_combined_sentiment(self, currency: str = "BTC") -> Dict:
+        """获取综合社会情绪 - 扩展版: 多subreddit + 通用财经/国际新闻"""
+        print(f"📊 获取 {currency} 社会情绪数据...")
+
+        # 1. Reddit (多subreddit: 股票 + 加密货币)
+        print("  ▶ Reddit (多板块)...", end=" ", flush=True)
+        reddit_data = self.get_reddit_multi_subreddit(currency, limit=20)
+        print(f"✅ {reddit_data.get('posts_analyzed', 0)} 帖")
+
+        # 2. 加密货币RSS
+        print("  ▶ 加密货币RSS...", end=" ", flush=True)
+        crypto_news = []
+        for source in ["coindesk", "cointelegraph", "decrypt"]:
+            news = self.get_rss_news(source, limit=5)
+            crypto_news.extend(news)
+        print(f"✅ {len(crypto_news)} 条")
+
+        # 3. 通用财经/国际新闻 (对股市/数字货币影响极大)
+        print("  ▶ 通用财经/国际新闻...", end=" ", flush=True)
+        general_news = self.get_general_news(currency, limit=10)
+        print(f"✅ {len(general_news)} 条")
+
+        # 4. 四大新闻社RSS
+        print("  ▶ 四大新闻社RSS...", end=" ", flush=True)
+        major_news = []
+        for source in ["bloomberg", "wsj", "cnbc", "ft"]:
+            news = self.get_rss_news(source, limit=5)
+            major_news.extend(news)
+        print(f"✅ {len(major_news)} 条")
+
+        # 计算各维度得分
+        # Reddit情绪
         indicators = reddit_data.get("sentiment_indicators", {})
         rb = indicators.get("bullish_keywords", 0)
         rr = indicators.get("bearish_keywords", 0)
         rt = rb + rr
         reddit_score = (rb - rr) / rt if rt > 0 else 0
 
-        # 综合得分 (RSS 60% + Reddit 40%)
-        combined = news_score * 0.6 + reddit_score * 0.4
+        # 加密货币新闻得分
+        crypto_weighted = 0
+        crypto_weight_sum = 0
+        for item in crypto_news:
+            w = item.get("weight", 0.2) * item.get("time_decay", 1.0)
+            sentiment = item.get("sentiment_score", 0) if item.get("sentiment_score") is not None else (0.5 if item.get("sentiment") == "positive" else 0.3 if item.get("sentiment") == "negative" else 0)
+            crypto_weighted += sentiment * w
+            crypto_weight_sum += w
+        crypto_score = crypto_weighted / crypto_weight_sum if crypto_weight_sum > 0 else 0
+
+        # 通用财经/国际新闻得分 (使用相关性加权)
+        general_weighted = 0
+        general_weight_sum = 0
+        for item in general_news:
+            w = item.get("weight", 0.2)
+            sentiment = item.get("sentiment_score", 0) if item.get("sentiment_score") is not None else (0.5 if item.get("sentiment") == "positive" else 0.3 if item.get("sentiment") == "negative" else 0)
+            general_weighted += sentiment * w
+            general_weight_sum += w
+        general_score = general_weighted / general_weight_sum if general_weight_sum > 0 else 0
+
+        # 四大新闻社得分
+        major_weighted = 0
+        major_weight_sum = 0
+        for item in major_news:
+            w = item.get("weight", 0.2) * item.get("time_decay", 1.0)
+            sentiment = item.get("sentiment_score", 0) if item.get("sentiment_score") is not None else (0.5 if item.get("sentiment") == "positive" else 0.3 if item.get("sentiment") == "negative" else 0)
+            major_weighted += sentiment * w
+            major_weight_sum += w
+        major_score = major_weighted / major_weight_sum if major_weight_sum > 0 else 0
+
+        # 综合得分 (权重: Reddit 25%, 加密货币 20%, 通用财经 30%, 四大新闻 25%)
+        combined = reddit_score * 0.25 + crypto_score * 0.20 + general_score * 0.30 + major_score * 0.25
+
+        all_news = crypto_news + general_news + major_news
 
         return {
             "currency": currency,
@@ -351,17 +546,20 @@ class SocialSentimentProvider:
             "overall_sentiment": "bullish" if combined > 0.3 else "bearish" if combined < -0.3 else "neutral",
             "sentiment_score": round(combined, 3),
             "breakdown": {
-                "news_sentiment": round(news_score, 3),
-                "reddit_sentiment": round(reddit_score, 3)
+                "reddit_sentiment": round(reddit_score, 3),
+                "crypto_news_sentiment": round(crypto_score, 3),
+                "general_news_sentiment": round(general_score, 3),
+                "major_news_sentiment": round(major_score, 3)
             },
             "statistics": {
-                "news_total": len(rss_news),
-                "news_positive": sum(1 for n in rss_news if n.get("sentiment") == "positive"),
-                "news_negative": sum(1 for n in rss_news if n.get("sentiment") == "negative"),
+                "news_total": len(all_news),
+                "news_positive": sum(1 for n in all_news if n.get("sentiment") == "positive"),
+                "news_negative": sum(1 for n in all_news if n.get("sentiment") == "negative"),
                 "reddit_posts": reddit_data.get("posts_analyzed", 0)
             },
-            "recent_headlines": [n.get("title", "") for n in rss_news[:5]],
-            "hot_topics": reddit_data.get("hot_topics", [])[:3]
+            "recent_headlines": [n.get("title", "") for n in all_news[:5]],
+            "hot_topics": reddit_data.get("hot_topics", [])[:3],
+            "general_news_sample": [n.get("title", "") for n in general_news[:3]]
         }
 
 
@@ -369,8 +567,14 @@ def get_social_sentiment(currency: str = "BTC") -> Dict:
     return SocialSentimentProvider().get_combined_sentiment(currency)
 
 def get_news_sentiment(currency: str = "BTC") -> List[Dict]:
+    """获取新闻情绪 - 使用RSS源 (修复CryptoPanic JS动态加载问题)"""
     provider = SocialSentimentProvider()
-    return provider.get_cryptopanic_news(currency, limit=10)
+    all_news = []
+    # 使用所有RSS源
+    for source in provider.RSS_SOURCES.keys():
+        news = provider.get_rss_news(source, limit=10)
+        all_news.extend(news)
+    return all_news[:20]  # 最多返回20条
 
 def get_reddit_discussion(subreddit: str = "cryptocurrency") -> Dict:
     return SocialSentimentProvider().get_reddit_sentiment(subreddit)
