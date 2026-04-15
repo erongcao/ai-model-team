@@ -2,13 +2,15 @@
 """
 AI Model Prediction Team
 =======================
-Multi-model协同预测系统：Kronos + Chronos + TimesFM + MOIRAI
+Multi-model协同预测系统：Kronos + Chronos-2 + TimesFM + FinBERT
 对OKX加密货币进行多角度AI预测，输出综合意见
 整合社会情绪分析：CryptoPanic + Reddit + RSS
 
+P0/P2: 风险控制闸门强制执行，不可绕过
+
 Usage:
   python3 model_team.py BTC-USDT-SWAP --signal-only
-  python3 model_team.py CL-USDT-SWAP --models kronos,chronos-base --social
+  python3 model_team.py CL-USDT-SWAP --models kronos,chronos-2 --social
   python3 model_team.py ETH-USDT-SWAP --full --social
 """
 
@@ -16,11 +18,24 @@ import sys, os, argparse, json
 from datetime import datetime
 from typing import List, Dict
 
-# 使用环境变量或默认路径
+# ============ MUST import config FIRST for fail-fast validation ============
 AI_MODEL_TEAM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 导入社会情绪模块
+# Config validation happens on import (fail-fast)
+try:
+    from config import validate_config, ConfigValidationError
+    # This will exit if config is invalid
+    config_result = validate_config(fail_fast=True)
+    print(f"✅ Config validated: env={config_result['config_summary']['app_env']}")
+except ConfigValidationError as e:
+    print(f"❌ Config Error: {e}")
+    sys.exit(1)
+
+# ============ Import Risk Control (MANDATORY) ============
+from risk_control import RiskGate, check_trade_risk, get_risk_gate
+
+# ============ Import Optional Modules ============
 try:
     from social_sentiment_provider import get_social_sentiment
     SOCIAL_AVAILABLE = True
@@ -30,7 +45,7 @@ except ImportError:
 OKX_BASE = "https://www.okx.com/api/v5"
 
 
-def get_klines(symbol: str, bar: str = "4H", limit: int = 200) -> Dict:
+def get_klines(symbol: str, bar: str = "4H", limit: int = 200):
     """Fetch OKX K-line data"""
     import requests, pandas as pd
     for inst in [symbol, f"{symbol}-SWAP"]:
@@ -47,13 +62,69 @@ def get_klines(symbol: str, bar: str = "4H", limit: int = 200) -> Dict:
     return {}
 
 
+def apply_risk_gate(
+    fused_signal: Dict,
+    current_equity: float = 10000.0,
+    proposed_position_pct: float = 0.1
+) -> Dict:
+    """
+    MANDATORY: Pass all signals through risk gate before outputting
+    
+    This function MUST be called for every prediction result.
+    Risk gate is NON-BYPASSABLE.
+    
+    Args:
+        fused_signal: Fused model signal (from fuse_signals)
+        current_equity: Current account equity
+        proposed_position_pct: Proposed position size
+    
+    Returns:
+        Risk-checked result with risk_gate_passed and risk_details
+    """
+    gate = get_risk_gate()
+    
+    # Check through risk gate
+    risk_result = gate.check(
+        signal_confidence=fused_signal["confidence"] / 100.0,
+        signal_direction=fused_signal["signal"],
+        proposed_position_pct=proposed_position_pct,
+        current_equity=current_equity
+    )
+    
+    # Add risk gate result to signal
+    result = fused_signal.copy()
+    result["risk_gate_passed"] = not risk_result.blocked
+    result["risk_gate_decision"] = risk_result.decision.value
+    result["risk_gate_reason"] = risk_result.reason
+    result["risk_gate_details"] = risk_result.details
+    
+    # Get current risk status
+    result["risk_status"] = gate.get_status()
+    
+    return result
+
+
+def print_risk_status(risk_status: Dict):
+    """Print risk status in report"""
+    state = risk_status.get("state", "unknown")
+    emoji = "✅" if state == "normal" else "⚠️" if state == "warning" else "🔴"
+    
+    print(f"\n  {emoji} 风控状态: {state.upper()}")
+    
+    metrics = risk_status.get("metrics", {})
+    if metrics:
+        print(f"     ├─ 今日盈亏: {metrics.get('daily_pnl', 'N/A')}")
+        print(f"     ├─ 回撤: {metrics.get('daily_drawdown', 'N/A')}")
+        print(f"     ├─ 连亏: {metrics.get('consecutive_losses', 0)}次")
+        print(f"     └─ 胜率: {metrics.get('win_rate', 'N/A')}")
+
+
 def print_social_sentiment(symbol: str):
-    """打印社会情绪分析"""
+    """Print social sentiment analysis"""
     if not SOCIAL_AVAILABLE:
         print("\n⚠️  社会情绪模块未安装 (pip install feedparser)")
         return
     
-    # 提取货币代码
     currency = symbol.split("-")[0] if "-" in symbol else symbol
     
     print(f"\n📊 社会情绪分析 ({currency})")
@@ -70,32 +141,20 @@ def print_social_sentiment(symbol: str):
         
         print(f"  {s_emoji} 综合情绪: {overall.upper()} (得分: {score:+.3f})")
         
-        # 详细分解
         breakdown = sentiment.get("breakdown", {})
-        news_score = breakdown.get("news_sentiment", 0)
-        reddit_score = breakdown.get("reddit_sentiment", 0)
-        print(f"     ├─ 新闻情绪: {news_score:+.3f}")
-        print(f"     └─ Reddit情绪: {reddit_score:+.3f}")
+        print(f"     ├─ 新闻情绪: {breakdown.get('news_sentiment', 0):+.3f}")
+        print(f"     └─ Reddit情绪: {breakdown.get('reddit_sentiment', 0):+.3f}")
         
-        # 统计数据
         stats = sentiment.get("statistics", {})
         print(f"\n  📈 数据统计:")
         print(f"     ├─ 新闻: {stats.get('news_positive', 0)}+ / {stats.get('news_negative', 0)}- / {stats.get('news_neutral', 0)}=")
         print(f"     └─ Reddit: {stats.get('reddit_posts', 0)} 帖分析")
         
-        # 热门话题
         hot_topics = sentiment.get("hot_topics", [])
         if hot_topics:
             print(f"\n  🔥 热门话题:")
             for topic in hot_topics[:2]:
                 print(f"     • {topic.get('title', '')[:50]}... (👍{topic.get('score', 0)})")
-        
-        # 最新头条
-        headlines = sentiment.get("recent_headlines", [])
-        if headlines:
-            print(f"\n  📰 最新头条:")
-            for title in headlines[:3]:
-                print(f"     • {title[:55]}...")
         
     except Exception as e:
         print(f"  ❌ 获取失败: {str(e)[:50]}")
@@ -110,10 +169,7 @@ def fuse_signals(results: List[Dict]) -> Dict:
     neutral = sum(1 for r in results if r["signal"] == "neutral")
     total = len(results)
 
-    # 加权置信度
     avg_conf = sum(r["confidence"] for r in results) / total
-
-    # 平均预测变化
     avg_pct = sum(r["price_change_pct"] for r in results) / total
 
     if bullish >= 3:
@@ -132,7 +188,6 @@ def fuse_signals(results: List[Dict]) -> Dict:
         fused = "neutral"
         conf = int(avg_conf * 0.7)
 
-    # 共识支撑/阻力
     all_lows = [r["forecast_low"] for r in results if r["forecast_low"] > 0]
     all_highs = [r["forecast_high"] for r in results if r["forecast_high"] > 0]
 
@@ -204,8 +259,8 @@ def run_model(model_name: str, symbol: str, bar: str) -> Dict:
 
 
 def print_report(symbol: str, bar: str, results: List[Dict], fused: Dict, 
-                 prices: Dict, show_social: bool = False):
-    """Print full team report"""
+                 prices: Dict, show_social: bool = False, show_risk: bool = True):
+    """Print full team report with MANDATORY risk gate status"""
     emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
     f_emoji = emoji.get(fused["signal"], "⚪")
 
@@ -219,7 +274,16 @@ def print_report(symbol: str, bar: str, results: List[Dict], fused: Dict,
     print(f"【平均预测变化】{fused['avg_price_change_pct']:+.2f}%")
     print(f"【关键价位】支撑: ${fused['support']} | 阻力: ${fused['resistance']}")
 
-    # 社会情绪分析
+    # ============ MANDATORY RISK GATE STATUS ============
+    if show_risk and "risk_status" in fused:
+        print_risk_status(fused["risk_status"])
+        
+        # Show risk gate decision
+        if not fused.get("risk_gate_passed", True):
+            print(f"\n  🔴 风控闸门: 阻止交易")
+            print(f"     原因: {fused.get('risk_gate_reason', 'Unknown')}")
+
+    # Social sentiment
     if show_social:
         print_social_sentiment(symbol)
 
@@ -252,16 +316,18 @@ def main():
     parser = argparse.ArgumentParser(description="AI Model Prediction Team")
     parser.add_argument("symbol", help="交易对，如 BTC-USDT-SWAP")
     parser.add_argument("--timeframe", "--tf", default="4H", help="周期 (默认: 4H)")
-    parser.add_argument("--models", default="kronos,chronos-base,chronos-small,timesfm,moirai",
+    parser.add_argument("--models", default="kronos,chronos-base,chronos-small,timesfm",
                         help="逗号分隔的模型列表")
     parser.add_argument("--signal-only", "-s", action="store_true", help="只输出信号")
     parser.add_argument("--json", "-j", action="store_true", help="JSON格式输出")
     parser.add_argument("--social", action="store_true", help="显示社会情绪分析")
+    parser.add_argument("--equity", type=float, default=10000.0, help="当前资金 (默认: 10000)")
+    parser.add_argument("--position", type=float, default=0.1, help="建议仓位 (默认: 10%)")
     args = parser.parse_args()
 
     model_list = [m.strip() for m in args.models.split(",")]
 
-    # Get current prices first
+    # Get current prices
     import requests
     for inst in [args.symbol, f"{args.symbol}-SWAP"]:
         url = f"{OKX_BASE}/market/ticker"
@@ -282,17 +348,28 @@ def main():
         status = "✅" if "Error" not in r.get("reasoning","") else "❌"
         print(f"{status} {r['signal']} ({r['confidence']}%)")
 
+    # ============ MANDATORY: Fuse signals ============
     fused = fuse_signals(results)
+    
+    # ============ MANDATORY: Apply risk gate ============
+    # ALL signals MUST pass through risk gate
+    fused_with_risk = apply_risk_gate(
+        fused_signal=fused,
+        current_equity=args.equity,
+        proposed_position_pct=args.position
+    )
 
     if args.json:
         output = {
             "symbol": args.symbol, "timeframe": args.timeframe,
             "timestamp": datetime.now().isoformat(),
-            "fused": fused,
+            "fused": fused_with_risk,  # Already includes risk gate result
             "models": results,
-            "current_price": current_price
+            "current_price": current_price,
+            "risk_gate_passed": fused_with_risk["risk_gate_passed"],
+            "risk_gate_decision": fused_with_risk["risk_gate_decision"],
+            "risk_gate_reason": fused_with_risk["risk_gate_reason"]
         }
-        # 添加社会情绪
         if args.social and SOCIAL_AVAILABLE:
             currency = args.symbol.split("-")[0] if "-" in args.symbol else args.symbol
             try:
@@ -302,15 +379,19 @@ def main():
         print(json.dumps(output, ensure_ascii=False, indent=2))
     elif args.signal_only:
         emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
-        f_emoji = emoji.get(fused["signal"], "⚪")
-        print(f"\n{f_emoji} 综合: {fused['signal']} ({fused['confidence']}/100)")
-        print(f"   投票: {fused['vote']}")
+        f_emoji = emoji.get(fused_with_risk["signal"], "⚪")
+        risk_status = "🔴" if not fused_with_risk["risk_gate_passed"] else "✅"
+        print(f"\n{f_emoji} 综合: {fused_with_risk['signal']} ({fused_with_risk['confidence']}/100)")
+        print(f"   投票: {fused_with_risk['vote']}")
+        print(f"   {risk_status} 风控: {fused_with_risk['risk_gate_decision']}")
+        if not fused_with_risk["risk_gate_passed"]:
+            print(f"   原因: {fused_with_risk['risk_gate_reason']}")
         for r in results:
             m_e = emoji.get(r["signal"], "⚪")
             print(f"   {m_e} {r['model']}: {r['signal']} ({r['confidence']}%)")
     else:
-        print_report(args.symbol, args.timeframe, results, fused,
-                    {"current": current_price}, show_social=args.social)
+        print_report(args.symbol, args.timeframe, results, fused_with_risk,
+                    {"current": current_price}, show_social=args.social, show_risk=True)
 
 
 if __name__ == "__main__":
