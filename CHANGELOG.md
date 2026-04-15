@@ -1,5 +1,27 @@
 # AI Model Team Changelog
 
+## [2.6.0] - 2026-04-16
+
+### 🆕 Added (Testing & Reliability)
+
+#### 1. 单元测试
+- 新增 `tests/` 目录
+- 9个单元测试 (pytest)
+- 覆盖: Kronos, OKX Data, VADER, Social Sentiment
+
+#### 2. HTTP 缓存
+- 新增 `get_data_cached()` 函数
+- `lru_cache(maxsize=128)` 避免重复请求
+- TTL 支持 (默认60秒)
+- `clear_data_cache()` 清除缓存
+
+#### 3. Reddit API 重试机制
+- 最多3次重试
+- 429限流时自动等待并重试
+- 指数退避 (2s, 4s, 6s)
+
+---
+
 ## [2.5.0] - 2026-04-16
 
 ### 🐛 Fixed (Code Robustness)
