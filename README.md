@@ -1,6 +1,6 @@
 # AI Model Team
 
-**Version:** 2.1.0  
+**Version:** 2.2.0  
 **Release Date:** 2026-04-15  
 **Author:** NeoQuasar AI Lab
 
@@ -8,18 +8,42 @@
 
 ---
 
-## v2.1.0 更新亮点
+## v2.2.0 可复现性修复 (2026-04-15)
+
+### 🐛 严重问题修复
+
+| 问题 | 修复前 | 修复后 |
+|------|--------|--------|
+| **timesfm 安装方式** | `file:///tmp/timesfm` (本地路径) | `git+https://github.com/google-research/timesfm.git@f085b90` |
+| **Chronos 安装方式** | 仅注释，无安装指令 | `git+https://github.com/amazon-science/chronos-forecasting.git@<commit>` |
+| **Python 版本要求** | `3.14+` (过于激进) | `3.11+` (扩大兼容范围) |
+
+### 📝 依赖管理改进
+
+```diff
+# timesfm
+- timesfm @ file:///tmp/timesfm
++ timesfm @ git+https://github.com/google-research/timesfm.git@f085b90
+
+# chronos-forecasting
+- # Chronos - Amazon T5-based time series model
++ chronos-forecasting @ git+https://github.com/amazon-science/chronos-forecasting.git@6d68ed7c4ed2805d122d77b4660765b4089de5ca
+
+# Python
+- # Python: 3.14+
++ # Python: 3.11+ (recommended: 3.11-3.14)
+```
+
+### ✅ 其他改进
+
+- `psutil` 依赖已锁定版本 (`7.2.2`) — 无需修复
+- 所有 GitHub 安装使用明确 commit hash，确保可复现性
+
+---
+
+## v2.1.0 社会情绪增强 (2026-04-15)
 
 ### 🆕 新增功能
-
-| 功能 | 说明 |
-|------|------|
-| **FinBERT 情绪分析** | 基于 HuggingFace FinBERT，分析新闻/社交媒体情绪，输出交易信号 |
-| **社会情绪数据模块** | 整合 Reddit + RSS 多数据源 |
-| **OKX CEX 数据集成** | 订单簿、资金费率、持仓量、70+ 技术指标 |
-| **四模型协同预测** | Kronos + TimesFM + Chronos-2 + FinBERT 投票融合 |
-
-### v2.1.0 新增功能
 
 | 功能 | 说明 |
 |------|------|

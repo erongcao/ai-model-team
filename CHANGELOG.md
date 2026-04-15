@@ -1,5 +1,24 @@
 # AI Model Team Changelog
 
+## [2.2.0] - 2026-04-15
+
+### 🐛 Fixed (Critical - Reproducibility)
+
+#### Dependency Installation
+- **timesfm**: `file:///tmp/timesfm` → `git+https://github.com/google-research/timesfm.git@f085b90`
+  - 本地路径安装导致其他机器无法复现
+  - 改用 GitHub commit hash 确保可复现性
+- **chronos-forecasting**: 添加明确的 `git+https` 安装指令
+  - 原 requirements.txt 只有注释
+  - 补充: `git+https://github.com/amazon-science/chronos-forecasting.git@6d68ed7c4ed2805d122d77b4660765b4089de5ca`
+- **Python 版本要求**: `3.14+` → `3.11+`
+  - Python 3.14 过于激进，扩大兼容范围
+
+### ✅ Other
+- `psutil==7.2.2` 已锁定版本 (审核报告有误)
+
+---
+
 ## [2.1.0] - 2026-04-15
 
 ### 🆕 Added
