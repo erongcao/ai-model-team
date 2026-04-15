@@ -1,5 +1,56 @@
 # AI Model Team Changelog
 
+## [2.1.0] - 2026-04-15
+
+### 🆕 Added
+
+#### Social Sentiment Provider (Major Enhancement)
+- **Multi-Subreddit Reddit** - 股票/加密货币多板块搜索
+  - Stock symbols: `stocks`, `investing`, `wallstreetbets`, `StockMarket`
+  - Crypto symbols: `cryptocurrency`, `BitCoin`, `ethereum`
+  - 100 posts fetched (up from 25)
+- **General News / International News** - 对股市和数字货币影响极大
+  - Reuters World/Business/Markets RSS
+  - BBC World/US RSS
+  - CNN Business, Guardian Business, WSJ World
+- **Four Major News Agencies RSS**
+  - Bloomberg (30 entries)
+  - WSJ (20 entries)
+  - CNBC (30 entries)
+  - FT (11 entries)
+- **Relevance-Weighted Sentiment**
+  - News items scored by relevance to symbol
+  - Expanded bullish/bearish keywords (40+)
+  - Per-item sentiment score (not just label)
+
+#### FinBERT Enhancement
+- **Timeout Protection** - 15秒超时防止无限等待
+- **Fallback to Keyword Analysis** - 模型加载失败时自动回退
+- **20 News Items Analyzed** - 支持更多新闻源
+
+#### leak_audit.py - 数据泄漏审计
+- Timestamp alignment check
+- Time window sliding verification
+- Future data leakage detection
+- Feature leakage check
+- Random seed verification
+
+### 🐛 Fixed
+
+- **CryptoPanic Scraper** - 移除broken的JS动态加载爬虫
+  - Replaced with extended RSS sources
+- **Reddit Sentiment** - 从单一板块扩展到多板块
+- **get_news_sentiment()** - 修复调用broken的CryptoPanic
+- **FinBERT Model Cache** - 修复不完整的HuggingFace缓存
+
+### 🔧 Changed
+
+- **RSS Sources** - 从5个扩展到10个
+- **Reddit Posts** - 从25条扩展到100条
+- **Sentiment Weighting** - Reddit 25%, 加密货币 20%, 通用财经 30%, 四大新闻 25%
+
+---
+
 ## [2.0.0] - 2026-04-15
 
 ### 🆕 Added

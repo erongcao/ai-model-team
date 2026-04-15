@@ -1,6 +1,6 @@
 # AI Model Team
 
-**Version:** 2.0.0  
+**Version:** 2.1.0  
 **Release Date:** 2026-04-15  
 **Author:** NeoQuasar AI Lab
 
