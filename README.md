@@ -8,16 +8,26 @@
 
 ---
 
-## v2.0.0 更新亮点
+## v2.1.0 更新亮点
 
 ### 🆕 新增功能
 
 | 功能 | 说明 |
 |------|------|
 | **FinBERT 情绪分析** | 基于 HuggingFace FinBERT，分析新闻/社交媒体情绪，输出交易信号 |
-| **社会情绪数据模块** | 整合 CryptoPanic + Reddit + RSS 三数据源 |
+| **社会情绪数据模块** | 整合 Reddit + RSS 多数据源 |
 | **OKX CEX 数据集成** | 订单簿、资金费率、持仓量、70+ 技术指标 |
 | **四模型协同预测** | Kronos + TimesFM + Chronos-2 + FinBERT 投票融合 |
+
+### v2.1.0 新增功能
+
+| 功能 | 说明 |
+|------|------|
+| **Multi-Subreddit Reddit** | 股票/加密货币多板块搜索 (stocks/investing/wallstreetbets/crypto) |
+| **通用财经/国际新闻** | Reuters, BBC World/US, CNN Business, Guardian Business |
+| **四大新闻社 RSS** | Bloomberg, WSJ, CNBC, FT 实时新闻 |
+| **FinBERT 超时保护** | 15秒超时 + 模型加载失败自动回退到关键词分析 |
+| **数据泄漏审计** | leak_audit.py 检测时间戳/窗口/特征泄漏 |
 
 ### 🔧 修复改进
 
