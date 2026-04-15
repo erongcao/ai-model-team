@@ -165,7 +165,8 @@ ai-model-team/
     ├── drift_detection.py         # 漂移检测
     ├── execution.py              # 智能订单执行
     ├── security.py               # 安全与合规
-    └── runbook.py                # 运行手册
+    ├── runbook.py                # 运行手册
+    └── leak_audit.py             # 泄漏审计 (P3)
 ```
 
 ---
@@ -604,6 +605,27 @@ print(entry.resolution)
 # 回滚配置
 RollbackManager.create_backup()
 RollbackManager.rollback_config()
+```
+
+---
+
+### leak_audit.py - 泄漏审计
+
+| 功能 | 说明 |
+|------|------|
+| **时间戳审计** | 检查时间间隔一致性 |
+| **窗口滑动** | 验证不使用未来数据 |
+| **特征泄漏** | 检测 forward-looking 特征 |
+| **随机种子** | 验证可复现性 |
+
+```bash
+# 审计 BTC-USDT-SWAP
+python3 scripts/leak_audit.py --symbol BTC-USDT-SWAP --bar 4H --detailed
+
+# 退出码
+# 0 = 无泄漏
+# 1 = 高严重性泄漏
+# 2 = 严重泄漏
 ```
 
 ---
