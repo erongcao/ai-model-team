@@ -333,10 +333,31 @@ def get_data(symbol: str, bar: str = "1H", limit: int = 500) -> pd.DataFrame:
         'NFLX', 'AMD', 'INTC', 'CRM', 'ORCL', 'IBM', 'QCOM'
     }
     
-    # 明确不是股票的加密货币（避免 Yahoo Finance 将 ETF 代码误识别）
+    # 明确不是股票的标的（加密货币 + 大宗商品期货）
+    # 避免 Yahoo Finance 将同名股票代码误识别（如 CL=Colgate vs CL=WTI原油）
     CRYPTO_EXCLUSIONS = {
+        # 加密货币
         'BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'AVAX', 'DOT',
-        'USDT', 'OKB', 'USDC', 'LINK', 'MATIC', 'UNI', 'ATOM'
+        'USDT', 'OKB', 'USDC', 'LINK', 'MATIC', 'UNI', 'ATOM',
+        # 大宗商品期货代码（Yahoo Finance 有同名股票）
+        'CL',   # 原油 (WTI) vs Colgate-Palmolive
+        'NG',   # 天然气 vs Network Analytics
+        'HG',   # 铜 vs HUGO CHAVEZ
+        'PL',   # 白金 vs Polaris
+        'PA',   # 钯 vs Pandora
+        'ZC',   # 玉米 vs Zunic Markets
+        'ZS',   # 大豆 vs Summit Financial
+        'ZW',   # 小麦 vs Warren Buffett related
+        'ZL',   # 豆油 vs ZLEPIER
+        'ZO',   # 燕麦 vs ZO控股
+        'ZR',   # 大米 vs ZIRION
+        'CC',   # 可可 vs Carnival Corp
+        'CT',   # 棉花 vs Cit Group
+        'LB',   # 木材 vs Lumber
+        'OJ',   # 橙汁 vs Orange Juice
+        'KC',   # 咖啡 vs Kansas City Southern
+        'SB',   # 糖 vs Santa Barbara
+        'RC',   # 螺纹钢 vs Realt混凝土
     }
     
     # 检测是否是股票代码

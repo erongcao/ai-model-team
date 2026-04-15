@@ -3,7 +3,7 @@ name: ai-model-team
 category: trading
 model: prediction
 description: AI Model Team - Multi-model prediction system (Kronos + Chronos-2 + TimesFM + VADER) for OKX crypto and US stocks. Features error handling, retry logic, HTTP caching, unit tests, and correct data source routing (OKX for crypto, Yahoo Finance for stocks).
-version: 2.8.0
+version: 2.9.0
 ---
 
 # AI Model Team

@@ -1,5 +1,21 @@
 # AI Model Team Changelog
 
+## [2.9.0] - 2026-04-16
+
+### 🐛 Fixed
+
+#### CL 原油数据源修复
+- **问题**: CL 被误路由到 Yahoo Finance，`CL`=Colgate股票，价格 $83
+- **修复**: 将 CL 加入 `CRYPTO_EXCLUSIONS`，走 OKX 原生价格 $88
+- **同时修复**: 新增 19 个大宗商品代码排除（CL/NG/HG/PL/PA/ZC/ZS/ZW/ZL/ZO/ZR/CC/CT/LB/OJ/KC/SB/RC）
+
+### 📝 Kronos 数据不足处理策略
+- **决策**: 不调低 lookback 阈值，保持 400 根 K线要求
+- **原因**: 宁可缺少一个模型信号，也不牺牲准确率
+- **表现**: 数据不足时 Kronos 返回"数据不足"，不强行计算
+
+---
+
 ## [2.8.0] - 2026-04-16
 
 ### 🐛 Fixed
