@@ -1,5 +1,47 @@
 # AI Model Team Changelog
 
+## [2.4.0] - 2026-04-15
+
+### 🐛 Fixed (Critical - FinBERT 模型加载超时)
+
+#### FinBERT Adapter 重构
+- **替换 ProsusAI/finbert** → **VADER (Valence Aware Dictionary)**
+  - ProsusAI/finbert 因 `proxies` 参数错误持续加载失败
+  - DistilBERT SST2 也加载超时（>60秒）
+  - VADER: <1秒加载，即时分析
+- **新增金融关键词增强**
+  - 30+ bullish 关键词 (surge,rally,pump,breakout,adoption...)
+  - 30+ bearish 关键词 (crash,dump,bear,decline,ban...)
+  - VADER 70% + 金融关键词 30% 综合评分
+- **新增依赖**
+  - `vaderSentiment==3.3.2`
+
+### ✅ Other
+- FinBERT adapter 重写为 VADER-based 情感分析器
+- 移除 `timeout=15` 参数（原用于神经模型超时保护）
+
+---
+
+## [2.3.0] - 2026-04-15
+
+### 🐛 Fixed (CryptoPanic Scraper + FinBERT Timeout)
+
+#### CryptoPanic RSS 替换
+- **移除**: `cryptopanic` Python 包（JS动态加载，已损坏）
+- **新增**: 10个直接RSS源
+  - coindesk, cointelegraph, decrypt (加密)
+  - bloomberg, wsj, cnbc, ft (财经)
+  - bbc_business, economist, nytimes (综合)
+- FinBERT 15秒超时 + 关键词分析回退
+- FinBERT 适配器稳定版
+
+### 📝 Documentation
+- **docs/KRONOS_MODEL_CARD.md** - 模型透明度文档
+- README.md 更新 `post_install.py` 说明
+- README.md 更新 `scripts/` 目录列表
+
+---
+
 ## [2.2.0] - 2026-04-15
 
 ### 🐛 Fixed (Critical - Reproducibility)

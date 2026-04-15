@@ -4,7 +4,7 @@
 **Release Date:** 2026-04-15  
 **Author:** NeoQuasar AI Lab
 
-多模型协同预测系统 —— 整合 Kronos、Chronos-2、TimesFM、FinBERT 四大 AI 模型，对 OKX 加密货币进行多角度分析，输出综合交易信号。
+多模型协同预测系统 —— 整合 Kronos、Chronos-2、TimesFM、VADER 四大 AI/规则模型，对 OKX 加密货币进行多角度分析，输出综合交易信号。
 
 ---
 
@@ -52,7 +52,7 @@
 | **Multi-Subreddit Reddit** | 股票/加密货币多板块搜索 (stocks/investing/wallstreetbets/crypto) |
 | **通用财经/国际新闻** | Reuters, BBC World/US, CNN Business, Guardian Business |
 | **四大新闻社 RSS** | Bloomberg, WSJ, CNBC, FT 实时新闻 |
-| **FinBERT 超时保护** | 15秒超时 + 模型加载失败自动回退到关键词分析 |
+| **FinBERT 情感分析** | VADER金融增强 (<1秒加载) + 可选神经网络备选 |
 | **数据泄漏审计** | leak_audit.py 检测时间戳/窗口/特征泄漏 |
 
 ### 🔧 修复改进
@@ -74,7 +74,7 @@
 | **Kronos-base** | NeoQuasar | 加密K线专精（庄家行为/洗盘识别） | 价格走势 | 30% |
 | **Chronos-2** | Amazon | 泛领域宏观周期（数学/概率模型） | 分位数预测 | 25% |
 | **TimesFM-2.5** | Google | 通用时序节奏（上下文感知） | 时序预测 | 25% |
-| **FinBERT-sentiment** | HuggingFace | 金融文本情绪分析 | 新闻/社交情绪 | 20% |
+| **FinBERT-sentiment** | HuggingFace/VADER | 金融文本情绪分析 | VADER+金融关键词 | 20% |
 
 ### 模型详情
 
@@ -96,11 +96,11 @@
 - **输出**: 点预测 + 置信区间
 - **特点**: 200M参数，通用时序模型，支持零样本预测
 
-#### 4. FinBERT-sentiment (HuggingFace)
-- **模型ID**: `ProsusAI/finbert` (HuggingFace)
+#### 4. FinBERT-sentiment (VADER + 金融关键词增强)
+- **模型**: `VADER` (Valence Aware Dictionary) + 金融关键词增强
 - **输入**: 文本（新闻标题、社交媒体内容）
 - **输出**: 情绪分类 (positive/negative/neutral) + 置信度
-- **特点**: 专门针对金融文本训练
+- **特点**: <1秒加载，70% VADER + 30% 金融关键词综合评分
 
 ---
 

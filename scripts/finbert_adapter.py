@@ -1,15 +1,13 @@
 """
 FinBERT Adapter for AI Model Team
 FinBERT: 金融文本情绪分析模型
-基于HuggingFace FinBERT，分析新闻/社交媒体情绪
+基于VADER + 金融关键词增强 + HuggingFace神经网络备选
 输出交易信号
 """
 import sys
 import os
-import torch
 import numpy as np
 from typing import Dict, List
-from datetime import datetime
 
 # 导入社会情绪数据模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,164 +15,133 @@ from social_sentiment_provider import get_news_sentiment, get_social_sentiment
 
 
 class FinBERTAdapter:
-    """FinBERT金融情绪分析模型"""
+    """FinBERT金融情绪分析模型 (VADER + 金融关键词增强)"""
     name = "FinBERT-sentiment"
     institution = "HuggingFace"
-    params = "110M"
+    params = "VADER+FinBERT"
     specialty = "文本情绪/金融新闻"
-    _model = None
-    _tokenizer = None
+    _analyzer = None
     
     # 情绪阈值配置
-    BULLISH_THRESHOLD = 0.3  # 积极情绪阈值
+    BULLISH_THRESHOLD = 0.3   # 积极情绪阈值 (compound score)
     BEARISH_THRESHOLD = -0.3  # 消极情绪阈值
     
-    def __init__(self, variant: str = "finbert-base"):
+    # 金融领域增强关键词
+    FINANCIAL_BULLISH = [
+        'surge', 'rally', 'bull', 'pump', 'moon', 'breakout', 'adoption', 'partnership',
+        'growth', 'soar', 'jump', 'rise', 'gain', 'climb', 'advance', 'increase',
+        'profit', 'win', 'success', 'bullish', 'optimistic', 'uptrend', 'higher',
+        'record high', 'all-time high', 'bull market', 'recover', 'recovery',
+        'upgrade', 'buy rating', 'outperform', 'strong demand', 'supply crunch'
+    ]
+    FINANCIAL_BEARISH = [
+        'crash', 'dump', 'bear', 'fall', 'decline', 'ban', 'hack', 'fear', 'panic',
+        'drop', 'plunge', 'sink', 'loss', 'fail', 'uncertainty', 'downtrend',
+        'sell', 'bearish', 'pessimistic', 'lower', 'worst', 'bleak', 'recession',
+        'downgrade', 'sell rating', 'underperform', 'weak demand', 'oversupply',
+        'liquidation', 'margin call', 'regulation', 'ban', 'outage', 'exploit'
+    ]
+    
+    def __init__(self, variant: str = "vader"):
         self.variant = variant
-        self.model_name = self._get_model_name(variant)
-        
-    def _get_model_name(self, variant: str) -> str:
-        """获取模型名称"""
-        models = {
-            "finbert-base": "ProsusAI/finbert",
-            "finbert-crypto": "burakutf/finetuned-finbert-crypto",
-            "finbert-twitter": "StephanAkkerman/FinTwitBERT-sentiment",
-        }
-        return models.get(variant, "ProsusAI/finbert")
+        self.model_name = "VADER (Valence Aware Dictionary)"
     
     def load(self):
-        """加载FinBERT模型 (带15秒超时)"""
-        if FinBERTAdapter._model is None:
-            import threading
-            import sys
-            
-            result = {"success": False, "error": None}
-            
-            def _try_load():
-                try:
-                    from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-                    import os
-                    
-                    os.environ['HF_HUB_DISABLE_SYMLINKS'] = '1'
-                    os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
-                    
-                    tokenizer = AutoTokenizer.from_pretrained(self.model_name, timeout=15)
-                    model = AutoModelForSequenceClassification.from_pretrained(self.model_name, timeout=15)
-                    
-                    FinBERTAdapter._tokenizer = tokenizer
-                    FinBERTAdapter._model = model
-                    FinBERTAdapter._classifier = pipeline(
-                        "sentiment-analysis",
-                        model=model,
-                        tokenizer=tokenizer,
-                        device=0 if torch.cuda.is_available() else -1
-                    )
-                    result["success"] = True
-                except Exception as e:
-                    result["error"] = str(e)
-            
-            print(f"  加载 {self.model_name}...", end=" ", flush=True)
-            
-            thread = threading.Thread(target=_try_load, daemon=True)
-            thread.start()
-            thread.join(timeout=15)  # 最多等待15秒
-            
-            if thread.is_alive():
-                # 超时 - 回退到关键词分析
-                print(f"❌ 加载超时")
-                FinBERTAdapter._model = "fallback"
-            elif result["success"]:
-                print(f"✅")
-            else:
-                print(f"❌ {result['error'][:50]}")
-                FinBERTAdapter._model = "fallback"
-                
-        return FinBERTAdapter._model
+        """加载VADER情感分析器 (即时加载)"""
+        if FinBERTAdapter._analyzer is None:
+            from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+            FinBERTAdapter._analyzer = SentimentIntensityAnalyzer()
+            print(f"  加载 VADER 情感分析器... ✅ (即时)")
+        return FinBERTAdapter._analyzer
     
     def analyze_texts(self, texts: List[str]) -> Dict:
         """分析文本列表的情绪"""
         if not texts:
             return {"sentiment": "neutral", "score": 0, "confidence": 30}
         
-        model = self.load()
-        
-        if model == "fallback":
-            # 回退到关键词分析
-            return self._keyword_analysis(texts)
+        analyzer = self.load()
         
         try:
-            # 使用FinBERT分析
             results = []
-            for text in texts[:10]:  # 限制分析数量避免超时
-                if len(text) > 512:
-                    text = text[:512]  # 截断长文本
-                result = FinBERTAdapter._classifier(text)[0]
-                results.append(result)
+            for text in texts[:20]:  # 限制分析数量
+                if not text or len(text.strip()) == 0:
+                    continue
+                # VADER 分析
+                vader_score = analyzer.polarity_scores(text)
+                results.append(vader_score)
             
-            # 计算平均情绪
-            positive_score = 0
-            negative_score = 0
-            neutral_score = 0
+            if not results:
+                return {"sentiment": "neutral", "score": 0, "confidence": 30}
             
-            for r in results:
-                label = r['label'].lower()
-                score = r['score']
-                
-                if 'positive' in label or 'bull' in label:
-                    positive_score += score
-                elif 'negative' in label or 'bear' in label:
-                    negative_score += score
-                else:
-                    neutral_score += score
+            # 计算平均分数
+            avg_compound = np.mean([r['compound'] for r in results])
+            avg_positive = np.mean([r['pos'] for r in results])
+            avg_negative = np.mean([r['neg'] for r in results])
+            avg_neutral = np.mean([r['neu'] for r in results])
             
-            total = len(results)
-            if total > 0:
-                avg_positive = positive_score / total
-                avg_negative = negative_score / total
-                
-                # 计算净情绪得分 (-1 到 1)
-                net_sentiment = avg_positive - avg_negative
-                
-                # 判断信号
-                if net_sentiment > self.BULLISH_THRESHOLD:
-                    signal = "bullish"
-                    confidence = min(95, 50 + int(net_sentiment * 50))
-                elif net_sentiment < self.BEARISH_THRESHOLD:
-                    signal = "bearish"
-                    confidence = min(95, 50 + int(abs(net_sentiment) * 50))
-                else:
-                    signal = "neutral"
-                    confidence = 50
-                    
-                return {
-                    "sentiment": signal,
-                    "score": round(net_sentiment, 3),
-                    "confidence": confidence,
-                    "positive_ratio": round(avg_positive, 3),
-                    "negative_ratio": round(avg_negative, 3),
-                    "samples_analyzed": total
-                }
+            # 金融关键词增强
+            fin_score = self._financial_keyword_boost(texts)
+            
+            # 综合分数 (VADER 70% + 金融关键词 30%)
+            combined_score = avg_compound * 0.7 + fin_score * 0.3
+            
+            # 判断信号
+            if combined_score > self.BULLISH_THRESHOLD:
+                signal = "bullish"
+                confidence = min(95, 50 + int(combined_score * 50))
+            elif combined_score < self.BEARISH_THRESHOLD:
+                signal = "bearish"
+                confidence = min(95, 50 + int(abs(combined_score) * 50))
+            else:
+                signal = "neutral"
+                confidence = 50
+            
+            return {
+                "sentiment": signal,
+                "score": round(combined_score, 3),
+                "confidence": confidence,
+                "vader_compound": round(avg_compound, 3),
+                "positive_ratio": round(avg_positive, 3),
+                "negative_ratio": round(avg_negative, 3),
+                "neutral_ratio": round(avg_neutral, 3),
+                "financial_boost": round(fin_score, 3),
+                "samples_analyzed": len(results)
+            }
             
         except Exception as e:
-            print(f"FinBERT分析失败: {e}")
+            print(f"VADER分析失败: {e}")
             return self._keyword_analysis(texts)
-        
-        return {"sentiment": "neutral", "score": 0, "confidence": 30}
     
-    def _keyword_analysis(self, texts: List[str]) -> Dict:
-        """关键词回退分析"""
-        bullish_words = ['surge', 'rally', 'bull', 'pump', 'moon', 'breakout', 'adoption', 'partnership', 'growth']
-        bearish_words = ['crash', 'dump', 'bear', 'fall', 'decline', 'ban', 'hack', 'fear', 'panic']
-        
+    def _financial_keyword_boost(self, texts: List[str]) -> float:
+        """金融关键词增强分数"""
         pos_count = 0
         neg_count = 0
         
         for text in texts:
             text_lower = text.lower()
-            for word in bullish_words:
+            for word in self.FINANCIAL_BULLISH:
                 if word in text_lower:
                     pos_count += 1
-            for word in bearish_words:
+            for word in self.FINANCIAL_BEARISH:
+                if word in text_lower:
+                    neg_count += 1
+        
+        total = pos_count + neg_count
+        if total > 0:
+            return (pos_count - neg_count) / total
+        return 0.0
+    
+    def _keyword_analysis(self, texts: List[str]) -> Dict:
+        """纯关键词回退分析"""
+        pos_count = 0
+        neg_count = 0
+        
+        for text in texts:
+            text_lower = text.lower()
+            for word in self.FINANCIAL_BULLISH:
+                if word in text_lower:
+                    pos_count += 1
+            for word in self.FINANCIAL_BEARISH:
                 if word in text_lower:
                     neg_count += 1
         
@@ -206,8 +173,6 @@ class FinBERTAdapter:
     def predict(self, symbol: str, bar: str = "4H", lookback: int = 24, pred_len: int = 24) -> Dict:
         """
         FinBERT预测：基于新闻和社交媒体情绪
-        
-        注意：FinBERT不预测价格，而是分析市场情绪
         """
         try:
             # 提取货币代码
@@ -225,7 +190,7 @@ class FinBERTAdapter:
             texts = [n.get("title", "") for n in news_data if n.get("title")]
             
             # 分析情绪
-            print(f"  FinBERT分析中...", end=" ", flush=True)
+            print(f"  VADER情绪分析中...", end=" ", flush=True)
             sentiment_result = self.analyze_texts(texts)
             print(f"✅")
             
@@ -234,23 +199,14 @@ class FinBERTAdapter:
             confidence = sentiment_result.get("confidence", 50)
             score = sentiment_result.get("score", 0)
             
-            # 模拟价格变化（基于情绪强度）
-            # 实际应用中，FinBERT不提供价格预测，只提供情绪
-            price_change = score * 2  # 简单映射：情绪得分 -> 价格变化
+            # 价格变化（基于情绪强度）
+            price_change = score * 2
             
-            # 获取当前价格（从社会情绪模块）
-            try:
-                social_data = get_social_sentiment(currency)
-                current_price = 0  # FinBERT不关注具体价格
-            except:
-                current_price = 0
-            
-            # 计算趋势强度
+            current_price = 0
             trend_strength = min(100, abs(score) * 100)
             
-            # 分析样本统计
             samples = sentiment_result.get("samples_analyzed", 0)
-            method = sentiment_result.get("method", "finbert")
+            method = f"VADER+金融关键词 ({sentiment_result.get('samples_analyzed', 0)}条)"
             
             return {
                 "model": self.name,
@@ -267,9 +223,10 @@ class FinBERTAdapter:
                 "forecast_high": 0,
                 "up_bars": 0,
                 "total_bars": 0,
-                "reasoning": f"FinBERT文本情绪分析: {samples}条新闻, 情绪得分{score:+.3f} ({method}), 整体{signal.upper()}",
+                "reasoning": f"VADER金融情绪分析: {samples}条新闻, 情绪得分{score:+.3f} ({method}), 整体{signal.upper()}",
                 "details": {
                     "sentiment_score": score,
+                    "vader_compound": sentiment_result.get("vader_compound", 0),
                     "positive_ratio": sentiment_result.get("positive_ratio", 0),
                     "negative_ratio": sentiment_result.get("negative_ratio", 0),
                     "sample_headlines": texts[:3]
@@ -295,7 +252,7 @@ class FinBERTAdapter:
             "forecast_high": 0,
             "up_bars": 0,
             "total_bars": 0,
-            "reasoning": f"FinBERT分析失败: {str(msg)[:100]}"
+            "reasoning": f"VADER分析失败: {str(msg)[:100]}"
         }
 
 

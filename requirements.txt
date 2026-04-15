@@ -25,10 +25,13 @@ chronos-forecasting @ git+https://github.com/amazon-science/chronos-forecasting.
 # Torch (required for most models)
 torch==2.11.0
 
-# Transformers (required for FinBERT)
+# Transformers (required for neural sentiment models)
 transformers==4.57.6
 tokenizers==0.22.2
 huggingface_hub==0.36.2
+
+# Sentiment analysis - VADER (primary, fast) + neural models (optional)
+vaderSentiment==3.3.2
 
 # Utilities
 tqdm==4.67.3
