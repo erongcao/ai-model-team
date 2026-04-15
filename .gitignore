@@ -1,25 +1,9 @@
-# Virtual environments
-.venv/
-timesfm_only/
-timesfm_env/
-
-# Python cache
+.env
+.env.local
 __pycache__/
 *.pyc
-*.pyo
-
-# Model caches
-*.bin
-*.pt
-*.pth
-*.onnx
-
-# OS files
+.venv/
+.vscode/
+.idea/
 .DS_Store
-*.swp
-*.swo
-
-# Large data files
-*.h5
-*.pkl
-*.pickle
+*.log

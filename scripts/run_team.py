@@ -9,37 +9,75 @@ All models reference the SAME current price for % calculation.
 """
 import subprocess, sys, os
 
-AI_HEDGE = "/Users/yirongcao/.agents/skills/ai-hedge-fund-skill"
-TIMESFM_VENV = "/Users/yirongcao/.agents/skills/ai-model-team/timesfm_only/bin/python3"
-CHRONOS_VENV = "/Users/yirongcao/.agents/skills/ai-model-team/.venv/bin/python3"
+# 使用环境变量或默认路径
+AI_MODEL_TEAM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+AI_HEDGE = os.environ.get('AI_HEDGE_PATH', os.path.join(os.path.expanduser('~'), '.agents/skills/ai-hedge-fund-skill'))
+OBSIDIAN_VAULT = os.environ.get('OBSIDIAN_VAULT', os.path.join(os.path.expanduser('~'), 'Obsidian/我的远程库'))
+
+TIMESFM_VENV = os.path.join(AI_MODEL_TEAM_DIR, "timesfm_only", "bin", "python3")
+CHRONOS_VENV = os.path.join(AI_MODEL_TEAM_DIR, ".venv", "bin", "python3")
+
+# 信号阈值配置（可调）
+BULLISH_THRESHOLD = 2.0
+BEARISH_THRESHOLD = -2.0
+
 
 def get_cur(symbol="BTC-USDT-SWAP"):
     import requests
     url = "https://www.okx.com/api/v5/market/history-candles"
-    r = requests.get(url, params={"instId": symbol, "bar": "4H", "limit": 5}, timeout=30)
-    d = r.json()
-    if d.get("code") == "0" and d.get("data"):
-        return float(d["data"][-1][4])  # close price
+    try:
+        r = requests.get(url, params={"instId": symbol, "bar": "4H", "limit": 5}, timeout=30)
+        r.raise_for_status()
+        d = r.json()
+        if d.get("code") == "0" and d.get("data"):
+            return float(d["data"][-1][4])  # close price
+    except requests.RequestException:
+        pass
     return None
 
-cur = get_cur()
-print(f"[统一参考价] BTC-USDT-SWAP 1H收盘: ${cur:.2f}")
+
+def get_data(bar, limit):
+    """获取OKX K线数据"""
+    import requests, pandas as pd
+    url = "https://www.okx.com/api/v5/market/history-candles"
+    try:
+        r = requests.get(url, params={"instId": "BTC-USDT-SWAP", "bar": bar, "limit": limit}, timeout=30)
+        r.raise_for_status()
+        d = r.json()
+        cols = ["ts","open","high","low","close","vol","vol2","vol3","confirm"]
+        df = pd.DataFrame(d["data"], columns=cols)
+        df['close'] = pd.to_numeric(df['close'])
+        df = df.sort_values("ts").reset_index(drop=True)
+        return df["close"].values.astype("float32")
+    except requests.RequestException:
+        return None
+
+
+cur_price = get_cur()
+if cur_price is None:
+    print("❌ 无法获取当前价格")
+    sys.exit(1)
+
+print(f"[统一参考价] BTC-USDT-SWAP 1H收盘: ${cur_price:.2f}")
 print()
 
 results = {}
 
 # ── Chronos-2 (1H - 24hr continuous) ──
 print("▶ Chronos-2  [1H×24 24小时连续 — 宏观周期]...", flush=True)
-chr_code = """
+chr_code = f"""
 import numpy as np, chronos, torch, requests, pandas as pd
+
+BULLISH_THRESHOLD = {BULLISH_THRESHOLD}
+BEARISH_THRESHOLD = {BEARISH_THRESHOLD}
 
 def get_data(bar, limit):
     url = "https://www.okx.com/api/v5/market/history-candles"
-    r = requests.get(url, params={"instId": "BTC-USDT-SWAP", "bar": bar, "limit": limit}, timeout=30)
+    r = requests.get(url, params={{"instId": "BTC-USDT-SWAP", "bar": bar, "limit": limit}}, timeout=30)
     d = r.json()
     cols = ["ts","open","high","low","close","vol","vol2","vol3","confirm"]
     df = pd.DataFrame(d["data"], columns=cols)
-    for c in ["close"]: df[c] = pd.to_numeric(df[c])
+    df['close'] = pd.to_numeric(df['close'])
     df = df.sort_values("ts").reset_index(drop=True)
     return df["close"].values.astype("float32")
 
@@ -52,9 +90,9 @@ forecast = pipeline.predict(ctx, prediction_length=24)[0]  # (1, 21, 24)
 fcast = forecast[0, 10, :].numpy()  # median quantile
 avg_f = float(np.mean(fcast))
 pct = (avg_f/cur-1)*100
-direction = 'bullish' if pct>2 else 'bearish' if pct<-2 else 'neutral'
+direction = 'bullish' if pct>BULLISH_THRESHOLD else 'bearish' if pct<BEARISH_THRESHOLD else 'neutral'
 up = sum(1 for p in fcast if p>cur)
-print(f"RESULT:chr:{direction}:{pct:.2f}:{cur:.2f}:{avg_f:.2f}:{up}")
+print(f"RESULT:chr:{{direction}}:{{pct:.2f}}:{{cur:.2f}}:{{avg_f:.2f}}:{{up}}")
 """
 out = subprocess.run([CHRONOS_VENV, "-c", chr_code], capture_output=True, text=True, timeout=300)
 for line in out.stdout.strip().split("\n"):
@@ -70,17 +108,20 @@ for line in out.stdout.strip().split("\n"):
 
 # ── TimesFM (1H - generic trend rhythm, 24hr continuous) ──
 print("▶ TimesFM-2.5-200M  [1H×24 24小时连续 — 通用节奏]...", flush=True)
-tfm_code = """
+tfm_code = f"""
 import numpy as np, requests, pandas as pd
 from timesfm import TimesFM_2p5_200M_torch, ForecastConfig
 
+BULLISH_THRESHOLD = {BULLISH_THRESHOLD}
+BEARISH_THRESHOLD = {BEARISH_THRESHOLD}
+
 def get_data(bar, limit):
     url = "https://www.okx.com/api/v5/market/history-candles"
-    r = requests.get(url, params={"instId": "BTC-USDT-SWAP", "bar": bar, "limit": limit}, timeout=30)
+    r = requests.get(url, params={{"instId": "BTC-USDT-SWAP", "bar": bar, "limit": limit}}, timeout=30)
     d = r.json()
     cols = ["ts","open","high","low","close","vol","vol2","vol3","confirm"]
     df = pd.DataFrame(d["data"], columns=cols)
-    for c in ["close"]: df[c] = pd.to_numeric(df[c])
+    df['close'] = pd.to_numeric(df['close'])
     df = df.sort_values("ts").reset_index(drop=True)
     return df["close"].values.astype("float32")
 
@@ -92,9 +133,9 @@ tfm.compile(forecast_config=fc)
 fcast = tfm.forecast(horizon=24, inputs=[prices[-200:]])[0][0]
 avg_f = float(np.mean(fcast))
 pct = (avg_f/cur-1)*100
-direction = 'bullish' if pct>2 else 'bearish' if pct<-2 else 'neutral'
+direction = 'bullish' if pct>BULLISH_THRESHOLD else 'bearish' if pct<BEARISH_THRESHOLD else 'neutral'
 up = sum(1 for p in fcast if p>cur)
-print(f"RESULT:tfm:{direction}:{pct:.2f}:{cur:.2f}:{avg_f:.2f}:{up}")
+print(f"RESULT:tfm:{{direction}}:{{pct:.2f}}:{{cur:.2f}}:{{avg_f:.2f}}:{{up}}")
 """
 out = subprocess.run([TIMESFM_VENV, "-c", tfm_code], capture_output=True, text=True, timeout=300)
 for line in out.stdout.strip().split("\n"):
@@ -148,7 +189,7 @@ _kr_fcast = _kr_pred['close'].values
 _kr_avg = float(_np.mean(_kr_fcast))
 _kr_pct = (_kr_avg/kr_cur-1)*100
 _kr_up = int(sum(1 for p in _kr_fcast if p>kr_cur))
-_kr_dir = 'bullish' if _kr_pct>2 else 'bearish' if _kr_pct<-2 else 'neutral'
+_kr_dir = 'bullish' if _kr_pct>BULLISH_THRESHOLD else 'bearish' if _kr_pct<BEARISH_THRESHOLD else 'neutral'
 
 results["Kronos-base"] = {
     "direction": _kr_dir,
@@ -170,7 +211,7 @@ print(f"  {d} {p:+.2f}%  ref=${c:.2f} → ${a:.2f}  [{u}/24 周期看涨]")
 print()
 print("=" * 60)
 print(f"  🎯 三模型分工分析 — BTC-USDT-SWAP")
-print(f"  统一参考价: ${cur:.2f}")
+print(f"  统一参考价: ${cur_price:.2f}")
 print("=" * 60)
 
 for name, r in results.items():
@@ -180,7 +221,7 @@ for name, r in results.items():
     print(f"  {emoji} {r['model']:<22} [{bar}]  {r['direction']:>8} {r['pct']:+.2f}%")
     print(f"     ref=${r['cur']:.2f} → ${r['avg']:.2f}  [{r['up']}/24涨]  {spec}")
 
-# Weighted voting: Kronos=4H(40%), Chronos=1D(30%), TimesFM=1D(30%)
+# Weighted voting: Kronos=40%, Chronos=30%, TimesFM=30%
 weights = {"Kronos-base": 0.4, "Chronos-t5-large": 0.3, "TimesFM-2.5-200M": 0.3}
 bullish_w = sum(weights[n] for n,r in results.items() if r["direction"]=="bullish")
 bearish_w = sum(weights[n] for n,r in results.items() if r["direction"]=="bearish")
@@ -204,15 +245,14 @@ print("=" * 60)
 print("⚠️ 仅供参考，不构成投资建议")
 
 # ── Auto-write to Obsidian ──
-VAULT = "/Users/yirongcao/Obsidian/我的远程库"
-NOTE  = f"{VAULT}/投资分析/AI-Model-Team-Runs.md"
+NOTE = os.path.join(OBSIDIAN_VAULT, "投资分析", "AI-Model-Team-Runs.md")
 
 from datetime import datetime
 now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
 lines = [
     f"## {now}  — BTC-USDT-SWAP",
-    f"**统一参考价:** ${cur:.2f}  **综合信号:** {fused}  **置信度:** {conf:.0f}/100  **加权变化:** {avg_pct_w:+.2f}%",
+    f"**统一参考价:** ${cur_price:.2f}  **综合信号:** {fused}  **置信度:** {conf:.0f}/100  **加权变化:** {avg_pct_w:+.2f}%",
     "",
     "| 模型 | 时间帧 | 信号 | 变化 | 周期看涨 | 权重 | 备注 |",
     "|------|---------|------|------|---------|------|------|",
@@ -225,6 +265,8 @@ for name, r in results.items():
 
 lines.append("")
 
+# 确保目录存在
+os.makedirs(os.path.dirname(NOTE), exist_ok=True)
 try:
     with open(NOTE, "a", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")

@@ -1,0 +1,17 @@
+# Core dependencies
+numpy>=1.24.0
+pandas>=2.0.0
+requests>=2.28.0
+
+# Time series models (choose based on your needs)
+# TimesFM - Google time series foundation model
+timesfm>=0.1.0
+
+# Chronos - Amazon T5-based time series model
+chronos-forest>=0.1.0
+
+# Optional: MOIRAI - Salesforce large-scale time series model
+# uni2ts>=0.1.0
+
+# Torch (required for most models)
+torch>=2.0.0

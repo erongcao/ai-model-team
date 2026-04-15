@@ -2,34 +2,21 @@
 Kronos adapter for AI Model Team
 Kronos: K-line specialist, pre-trained on 1.2B K-line records
 """
-import sys, os, requests, pandas as pd, numpy as np
+import sys, os, pandas as pd, numpy as np
 from datetime import timedelta
 from typing import Dict, Optional
 
-AI_HEDGE_FUND = "/Users/yirongcao/.agents/skills/ai-hedge-fund-skill"
+# 使用新的 OKX 数据提供模块
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from okx_data_provider import OKXDataProvider, get_klines
+
+# 使用环境变量或默认路径
+AI_HEDGE_FUND = os.environ.get('AI_HEDGE_PATH', os.path.join(os.path.expanduser('~'), '.agents/skills/ai-hedge-fund-skill'))
 sys.path.insert(0, f"{AI_HEDGE_FUND}/Kronos")
-sys.path.insert(0, f"{AI_HEDGE_FUND}")
+sys.path.insert(0, AI_HEDGE_FUND)
 
 MODEL_DIR = f"{AI_HEDGE_FUND}/models/kronos-base"
 TOKENIZER_DIR = f"{AI_HEDGE_FUND}/models/kronos-tokenizer"
-
-OKX_BASE = "https://www.okx.com/api/v5"
-
-
-def get_klines(symbol: str, bar: str = "4H", limit: int = 500) -> pd.DataFrame:
-    for inst in [symbol, f"{symbol}-SWAP"]:
-        url = f"{OKX_BASE}/market/history-candles"
-        r = requests.get(url, params={"instId": inst, "bar": bar, "limit": limit}, timeout=30)
-        d = r.json()
-        if d.get("code") == "0" and d.get("data"):
-            cols = ["ts", "open", "high", "low", "close", "vol", "vol2", "vol3", "confirm"]
-            df = pd.DataFrame(d["data"], columns=cols)
-            for c in ["open", "high", "low", "close", "vol"]:
-                df[c] = pd.to_numeric(df[c])
-            df["ts"] = pd.to_datetime(df["ts"].astype(float), unit="ms")
-            df = df.sort_values("ts").reset_index(drop=True)
-            return df.rename(columns={"ts": "timestamps"})
-    raise ValueError(f"Cannot fetch data for {symbol}")
 
 
 class KronosAdapter:
@@ -53,6 +40,7 @@ class KronosAdapter:
                  pred_len: int = 24) -> Dict:
         predictor = self.load()
         df = get_klines(symbol, bar=bar, limit=lookback + 50)
+        df = df.rename(columns={"ts": "timestamps"})  # 兼容新数据模块
         df_in = df.tail(lookback).reset_index(drop=True)
         last_ts = df_in["timestamps"].iloc[-1]
 

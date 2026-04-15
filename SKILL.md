@@ -3,9 +3,59 @@ name: ai-model-team
 description: AI量化模型预测团队 — 整合Kronos（K线专用）和TimesFM（Google通用时序）对OKX加密货币进行协同预测，生成综合意见。
 ---
 
-# AI 模型预测团队
+# AI Model Team
 
-**2026-04-13 更新：精简为2个核心模型**
+**项目概述**：三模型集成系统（Kronos + Chronos-2 + TimesFM），专注于OKX加密货币信号生成。
+
+## 项目信息
+
+| 项目 | 信息 |
+|------|------|
+| **名称** | AI Model Team |
+| **技术栈** | Python |
+| **核心功能** | Kronos + Chronos-2 + TimesFM 三模型集成预测 |
+| **目标平台** | OKX 加密货币 |
+| **状态** | 初始提交，无正式版本 |
+
+## 文件结构
+
+```
+~/.agents/skills/ai-model-team/
+├── .gitignore
+├── SKILL.md           # 本文档
+└── scripts/           # 脚本文件夹
+```
+
+**注**：项目尚无 README 文件、无发布版本、无正式分支，仅单贡献者。
+
+---
+
+**2026-04-15 更新：修复 huggingface_hub 兼容性问题**
+
+## ⚠️ 重要修复
+
+如果遇到以下错误：
+```
+TypeError: TimesFM_2p5_200M_torch.__init__() got an unexpected keyword argument 'proxies'
+```
+
+需要修改 timesfm 源代码来兼容新版 huggingface_hub：
+
+```bash
+# 文件路径
+~/.agents/skills/ai-model-team/.venv/lib/python3.14/site-packages/timesfm/timesfm_2p5/timesfm_2p5_torch.py
+
+# 找到这行（约332行）：
+instance = cls(config=config, **model_kwargs)
+
+# 替换为：
+# Filter out unsupported kwargs (compatibility fix for newer huggingface_hub)
+for unsupported_kwarg in ['proxies', 'proxy', 'resume_download', 'user_agent']:
+    model_kwargs.pop(unsupported_kwarg, None)
+instance = cls(config=config, **model_kwargs)
+```
+
+**原因**：huggingface_hub 0.36+ 会传递 `proxies`、`resume_download` 等参数给 `from_pretrained()`，但 TimesFM 的 `_from_pretrained()` 方法不识别这些参数。
 
 ## 团队成员
 

@@ -5,24 +5,34 @@ MOIRAI: Salesforce's large-scale time series foundation model
 import sys, os, requests, pandas as pd, numpy as np
 from typing import Dict
 
-AI_HEDGE_FUND = "/Users/yirongcao/.agents/skills/ai-hedge-fund-skill"
-sys.path.insert(0, f"{AI_HEDGE_FUND}")
+# 使用环境变量或默认路径
+AI_HEDGE_FUND = os.environ.get('AI_HEDGE_PATH', os.path.join(os.path.expanduser('~'), '.agents/skills/ai-hedge-fund-skill'))
+sys.path.insert(0, AI_HEDGE_FUND)
 
 OKX_BASE = "https://www.okx.com/api/v5"
+
+# 信号阈值配置（可调）
+BULLISH_THRESHOLD = 2.0
+BEARISH_THRESHOLD = -2.0
+
 
 def get_klines(symbol: str, bar: str = "4H", limit: int = 500) -> pd.DataFrame:
     for inst in [symbol, f"{symbol}-SWAP"]:
         url = f"{OKX_BASE}/market/history-candles"
-        r = requests.get(url, params={"instId": inst, "bar": bar, "limit": limit}, timeout=30)
-        d = r.json()
-        if d.get("code") == "0" and d.get("data"):
-            cols = ["ts", "open", "high", "low", "close", "vol", "vol2", "vol3", "confirm"]
-            df = pd.DataFrame(d["data"], columns=cols)
-            for c in ["open", "high", "low", "close", "vol"]:
-                df[c] = pd.to_numeric(df[c])
-            df["ts"] = pd.to_datetime(df["ts"].astype(float), unit="ms")
-            df = df.sort_values("ts").reset_index(drop=True)
-            return df
+        try:
+            r = requests.get(url, params={"instId": inst, "bar": bar, "limit": limit}, timeout=30)
+            r.raise_for_status()
+            d = r.json()
+            if d.get("code") == "0" and d.get("data"):
+                cols = ["ts", "open", "high", "low", "close", "vol", "vol2", "vol3", "confirm"]
+                df = pd.DataFrame(d["data"], columns=cols)
+                for c in ["open", "high", "low", "close", "vol"]:
+                    df[c] = pd.to_numeric(df[c])
+                df["ts"] = pd.to_datetime(df["ts"].astype(float), unit="ms")
+                df = df.sort_values("ts").reset_index(drop=True)
+                return df
+        except requests.RequestException:
+            continue
     raise ValueError(f"Cannot fetch data for {symbol}")
 
 
@@ -71,7 +81,7 @@ class MOIRAIAdapter:
             model = MOIRAI(
                 module="Salesforce/MOIRAI-1.1-R-small",
                 device="cpu",
-                torch_dtype=torch.float32,
+                dtype=torch.float32,
             )
 
             # MOIRAI prediction
@@ -87,9 +97,9 @@ class MOIRAIAdapter:
             avg_fcast = float(np.mean(fcast))
             pct = (avg_fcast / cur - 1) * 100
 
-            if pct > 2:
+            if pct > BULLISH_THRESHOLD:
                 direction, conf = "bullish", min(95, 50 + abs(pct) * 3)
-            elif pct < -2:
+            elif pct < BEARISH_THRESHOLD:
                 direction, conf = "bearish", min(95, 50 + abs(pct) * 3)
             else:
                 direction, conf = "neutral", 50

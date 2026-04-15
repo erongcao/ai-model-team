@@ -4,20 +4,28 @@ AI Model Prediction Team
 =======================
 Multi-model协同预测系统：Kronos + Chronos + TimesFM + MOIRAI
 对OKX加密货币进行多角度AI预测，输出综合意见
+整合社会情绪分析：CryptoPanic + Reddit + RSS
 
 Usage:
   python3 model_team.py BTC-USDT-SWAP --signal-only
-  python3 model_team.py CL-USDT-SWAP --models kronos,chronos-base
-  python3 model_team.py ETH-USDT-SWAP --full
+  python3 model_team.py CL-USDT-SWAP --models kronos,chronos-base --social
+  python3 model_team.py ETH-USDT-SWAP --full --social
 """
 
 import sys, os, argparse, json
 from datetime import datetime
 from typing import List, Dict
 
-# Add scripts dir to path
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SCRIPT_DIR)
+# 使用环境变量或默认路径
+AI_MODEL_TEAM_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 导入社会情绪模块
+try:
+    from social_sentiment_provider import get_social_sentiment
+    SOCIAL_AVAILABLE = True
+except ImportError:
+    SOCIAL_AVAILABLE = False
 
 OKX_BASE = "https://www.okx.com/api/v5"
 
@@ -37,6 +45,62 @@ def get_klines(symbol: str, bar: str = "4H", limit: int = 200) -> Dict:
             df["ts"] = pd.to_datetime(df["ts"].astype(float), unit="ms")
             return df.sort_values("ts").to_dict()
     return {}
+
+
+def print_social_sentiment(symbol: str):
+    """打印社会情绪分析"""
+    if not SOCIAL_AVAILABLE:
+        print("\n⚠️  社会情绪模块未安装 (pip install feedparser)")
+        return
+    
+    # 提取货币代码
+    currency = symbol.split("-")[0] if "-" in symbol else symbol
+    
+    print(f"\n📊 社会情绪分析 ({currency})")
+    print(f"{'━' * 62}")
+    
+    try:
+        sentiment = get_social_sentiment(currency)
+        
+        overall = sentiment.get("overall_sentiment", "neutral")
+        score = sentiment.get("sentiment_score", 0)
+        
+        emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
+        s_emoji = emoji.get(overall, "⚪")
+        
+        print(f"  {s_emoji} 综合情绪: {overall.upper()} (得分: {score:+.3f})")
+        
+        # 详细分解
+        breakdown = sentiment.get("breakdown", {})
+        news_score = breakdown.get("news_sentiment", 0)
+        reddit_score = breakdown.get("reddit_sentiment", 0)
+        print(f"     ├─ 新闻情绪: {news_score:+.3f}")
+        print(f"     └─ Reddit情绪: {reddit_score:+.3f}")
+        
+        # 统计数据
+        stats = sentiment.get("statistics", {})
+        print(f"\n  📈 数据统计:")
+        print(f"     ├─ 新闻: {stats.get('news_positive', 0)}+ / {stats.get('news_negative', 0)}- / {stats.get('news_neutral', 0)}=")
+        print(f"     └─ Reddit: {stats.get('reddit_posts', 0)} 帖分析")
+        
+        # 热门话题
+        hot_topics = sentiment.get("hot_topics", [])
+        if hot_topics:
+            print(f"\n  🔥 热门话题:")
+            for topic in hot_topics[:2]:
+                print(f"     • {topic.get('title', '')[:50]}... (👍{topic.get('score', 0)})")
+        
+        # 最新头条
+        headlines = sentiment.get("recent_headlines", [])
+        if headlines:
+            print(f"\n  📰 最新头条:")
+            for title in headlines[:3]:
+                print(f"     • {title[:55]}...")
+        
+    except Exception as e:
+        print(f"  ❌ 获取失败: {str(e)[:50]}")
+    
+    print(f"{'━' * 62}")
 
 
 def fuse_signals(results: List[Dict]) -> Dict:
@@ -95,6 +159,10 @@ def run_model(model_name: str, symbol: str, bar: str) -> Dict:
             from chronos_adapter import ChronosAdapter
             adapter = ChronosAdapter("chronos-t5-base")
             return adapter.predict(symbol, bar=bar, lookback=128, pred_len=24)
+        elif model_name == "chronos-2":
+            from chronos_adapter import ChronosAdapter
+            adapter = ChronosAdapter("chronos-2")
+            return adapter.predict(symbol, bar=bar, lookback=512, pred_len=24)
         elif model_name == "chronos-small":
             from chronos_adapter import ChronosAdapter
             adapter = ChronosAdapter("chronos-t5-small")
@@ -111,6 +179,14 @@ def run_model(model_name: str, symbol: str, bar: str) -> Dict:
             from moirai_adapter import MOIRAIAdapter
             adapter = MOIRAIAdapter()
             return adapter.predict(symbol, bar=bar, lookback=256, pred_len=24)
+        elif model_name == "finbert":
+            from finbert_adapter import FinBERTAdapter
+            adapter = FinBERTAdapter("finbert-base")
+            return adapter.predict(symbol, bar=bar, lookback=24, pred_len=24)
+        elif model_name == "finbert-crypto":
+            from finbert_adapter import FinBERTAdapter
+            adapter = FinBERTAdapter("finbert-crypto")
+            return adapter.predict(symbol, bar=bar, lookback=24, pred_len=24)
         else:
             return {
                 "model": model_name, "signal": "neutral", "confidence": 30,
@@ -127,7 +203,8 @@ def run_model(model_name: str, symbol: str, bar: str) -> Dict:
         }
 
 
-def print_report(symbol: str, bar: str, results: List[Dict], fused: Dict, prices: Dict):
+def print_report(symbol: str, bar: str, results: List[Dict], fused: Dict, 
+                 prices: Dict, show_social: bool = False):
     """Print full team report"""
     emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
     f_emoji = emoji.get(fused["signal"], "⚪")
@@ -141,6 +218,10 @@ def print_report(symbol: str, bar: str, results: List[Dict], fused: Dict, prices
     print(f"【模型投票】{fused['vote']}")
     print(f"【平均预测变化】{fused['avg_price_change_pct']:+.2f}%")
     print(f"【关键价位】支撑: ${fused['support']} | 阻力: ${fused['resistance']}")
+
+    # 社会情绪分析
+    if show_social:
+        print_social_sentiment(symbol)
 
     print(f"\n{'━' * 62}")
     print(f"{'模型':<25} {'机构':<12} {'信号':<10} {'置信度':<8} {'预测变化'}")
@@ -175,6 +256,7 @@ def main():
                         help="逗号分隔的模型列表")
     parser.add_argument("--signal-only", "-s", action="store_true", help="只输出信号")
     parser.add_argument("--json", "-j", action="store_true", help="JSON格式输出")
+    parser.add_argument("--social", action="store_true", help="显示社会情绪分析")
     args = parser.parse_args()
 
     model_list = [m.strip() for m in args.models.split(",")]
@@ -210,6 +292,13 @@ def main():
             "models": results,
             "current_price": current_price
         }
+        # 添加社会情绪
+        if args.social and SOCIAL_AVAILABLE:
+            currency = args.symbol.split("-")[0] if "-" in args.symbol else args.symbol
+            try:
+                output["social_sentiment"] = get_social_sentiment(currency)
+            except Exception as e:
+                output["social_sentiment"] = {"error": str(e)}
         print(json.dumps(output, ensure_ascii=False, indent=2))
     elif args.signal_only:
         emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "⚪"}
@@ -221,7 +310,7 @@ def main():
             print(f"   {m_e} {r['model']}: {r['signal']} ({r['confidence']}%)")
     else:
         print_report(args.symbol, args.timeframe, results, fused,
-                    {"current": current_price})
+                    {"current": current_price}, show_social=args.social)
 
 
 if __name__ == "__main__":
