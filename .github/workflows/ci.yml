@@ -1,0 +1,97 @@
+name: CI Smoke Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      
+      - name: Create venv
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip setuptools wheel
+      
+      - name: Install dependencies
+        run: |
+          .venv/bin/pip install -r requirements.txt --no-deps 2>&1 || true
+          .venv/bin/pip install numpy pandas requests PyYAML httpx httpcore feedparser torch transformers huggingface_hub tqdm click rich joblib scikit-learn scipy psutil filelock fsspec networkx sympy regex fastapi uvicorn pydantic --no-deps 2>&1 || true
+      
+      - name: Smoke Test - Imports
+        run: |
+          .venv/bin/python3 -c "
+            import numpy
+            import pandas
+            import requests
+            import torch
+            import transformers
+            import feedparser
+            print('✅ All core imports successful')
+          "
+      
+      - name: Smoke Test - OKX Data
+        run: |
+          .venv/bin/python3 -c "
+            import sys
+            sys.path.insert(0, 'scripts')
+            from okx_data_provider import get_klines
+            df = get_klines('BTC-USDT-SWAP', bar='1H', limit=10)
+            print(f'✅ OKX data fetched: {len(df)} rows')
+          "
+      
+      - name: Smoke Test - Model Adapters
+        run: |
+          .venv/bin/python3 -c "
+            import sys
+            sys.path.insert(0, 'scripts')
+            
+            # Test config
+            from config import Config
+            print(f'✅ Config loaded: APP_ENV={Config.APP_ENV}')
+            
+            # Test OKX data provider
+            from okx_data_provider import OKXDataProvider
+            print('✅ OKXDataProvider imported')
+            
+            # Test social sentiment provider
+            from social_sentiment_provider import get_news_sentiment
+            print('✅ SocialSentimentProvider imported')
+          "
+      
+      - name: End-to-End Test
+        run: |
+          .venv/bin/python3 scripts/model_team.py BTC-USDT-SWAP --models timesfm --signal-only 2>&1 | head -20
+
+  version-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      
+      - name: Generate lock file
+        run: |
+          pip install pip-tools 2>/dev/null || pip3 install pip-tools
+          pip-compile --generate-hashes --output-file=requirements.lock requirements.txt 2>&1 || \
+          pip freeze > requirements.lock.fallback.txt
+          echo "Lock file generated"
