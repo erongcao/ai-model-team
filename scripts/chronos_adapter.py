@@ -51,13 +51,11 @@ class ChronosAdapter:
                 ChronosAdapter._models[self.variant] = Chronos2Pipeline.from_pretrained(
                     self.hf_name,
                     device_map='cpu',
-                    dtype=torch.float32,
                 )
             else:
                 from chronos import ChronosPipeline
                 ChronosAdapter._models[self.variant] = ChronosPipeline.from_pretrained(
                     self.hf_name,
-                    dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
                 )
         return ChronosAdapter._models[self.variant]
 
@@ -73,7 +71,7 @@ class ChronosAdapter:
             # Chronos prediction - returns list of tensors or single tensor
             # chronos-t5-base: list of (n_quantiles, pred_len) tensors
             # chronos-2: list of (1, 21, 24) tensors (batch=1, n_quantiles=21, pred_len=24)
-            forecast = pipeline.predict([torch.tensor(context, dtype=torch.float32)], prediction_length=pred_len)
+            forecast = pipeline.predict([torch.tensor(context)], prediction_length=pred_len)
 
             # Get first forecast item
             if isinstance(forecast, list):

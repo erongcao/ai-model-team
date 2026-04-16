@@ -63,7 +63,8 @@ class OKXDataProvider:
             # 回退到直接 HTTP 请求
             return OKXDataProvider._fallback_klines(inst_id, okx_bar, limit)
         
-        if not candles:
+        # 如果返回数量少于请求数量，说明需要分页（OKX单次最多300条）
+        if not candles or len(candles) < limit:
             return OKXDataProvider._fallback_klines(inst_id, okx_bar, limit)
         
         # 解析数据
@@ -82,22 +83,44 @@ class OKXDataProvider:
     
     @staticmethod
     def _fallback_klines(inst_id: str, bar: str, limit: int) -> pd.DataFrame:
-        """回退到直接 HTTP 请求"""
+        """回退到直接 HTTP 请求，支持分页获取超过300条数据"""
         import requests
         url = "https://www.okx.com/api/v5/market/history-candles"
         
+        all_candles = []
+        remaining = limit
+        current_after = None
+        
         try:
-            r = requests.get(url, params={
-                "instId": inst_id,
-                "bar": bar,
-                "limit": limit
-            }, timeout=30)
-            r.raise_for_status()
-            d = r.json()
+            while remaining > 0:
+                batch_size = min(300, remaining)
+                params = {
+                    "instId": inst_id,
+                    "bar": bar,
+                    "limit": batch_size
+                }
+                if current_after:
+                    params["after"] = current_after
+                
+                r = requests.get(url, params=params, timeout=30)
+                r.raise_for_status()
+                d = r.json()
+                
+                if d.get("code") != "0" or not d.get("data"):
+                    break
+                
+                batch = d["data"]
+                all_candles.extend(batch)
+                remaining -= len(batch)
+                
+                if len(batch) == 300:
+                    current_after = batch[-1][0]
+                else:
+                    break
             
-            if d.get("code") == "0" and d.get("data"):
+            if all_candles:
                 cols = ["ts", "open", "high", "low", "close", "vol", "volCcy", "volCcyQuote", "confirm"]
-                df = pd.DataFrame(d["data"], columns=cols)
+                df = pd.DataFrame(all_candles[:limit], columns=cols)
                 for col in ["open", "high", "low", "close", "vol"]:
                     df[col] = pd.to_numeric(df[col])
                 df["ts"] = pd.to_datetime(df["ts"].astype(float), unit="ms")
